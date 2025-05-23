@@ -1,15 +1,19 @@
 from .dataset import PINeuFlowDataset, FrustumsSampler
 from .network import NetworkPINeuFlow
+from .renderer import VolumeRenderer
 from .visualizer import visualize_rays
 import torch
+import torch.utils.tensorboard
 import tqdm
 import typing
 import types
 import math
+import os
 
 
 class Trainer:
     def __init__(self,
+                 name: str,
                  workspace: str,
                  model: typing.Literal['hyfluid', 'PI-NeuFlow'],
                  learning_rate_encoder: float,
@@ -42,27 +46,48 @@ class Trainer:
 
         # self.states
         self.states = types.SimpleNamespace()
+        self.states.name = name
         self.states.workspace = workspace
         self.states.device = device
         self.states.epoch = 0
         self.states.iteration = 0
 
+        # debug
+        self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
+
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=4096)
+        renderer = VolumeRenderer()
         train_loader = sampler.dataloader()
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
 
             for i, data in enumerate(tqdm.tqdm(train_loader)):
                 data: dict
-                train_pixels = torch.flatten(data['train_pixels'], start_dim=0, end_dim=-2)  # [X, C]
-                train_times = torch.flatten(data['train_times'], start_dim=0, end_dim=-2)  # [X, 1]
-                train_rays_o = torch.flatten(data['train_rays_o'], start_dim=0, end_dim=-2)  # [X, 3]
-                train_rays_d = torch.flatten(data['train_rays_d'], start_dim=0, end_dim=-2)  # [X, 3]
 
-                # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
+                for _ in range(train_loader.batch_size):
+                    self.states.iteration += 1
+
+                    self.optimizer.zero_grad()
+                    rgb_map = renderer.render(
+                        network=self.model,
+                        rays_o=data['rays_o'][_],  # [N, C]
+                        rays_d=data['rays_d'][_],  # [1]
+                        time=data['times'][_],  # [N, 3]
+                        extra_params=train_dataset.extra_params,
+                    )
+                    gt_pixels = data['pixels'][_]  # [N, 3]
+                    img_loss = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
+                    img_loss.backward()
+                    self.optimizer.step()
+                    self.scheduler.step()
+
+                    self.writer.add_scalar("train/img_loss", img_loss, self.states.iteration)
+                    self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], self.states.iteration)
+
+                    # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
 
     def test(self, train_dataset: torch.utils.data.Dataset):
         self.model.eval()

@@ -18,6 +18,7 @@ if __name__ == "__main__":
     device = torch.device(cfg.train.device)
 
     trainer = Trainer(
+        name="PI-NeuFlow",
         workspace='workspace',
         model=cfg.train.model,
         learning_rate_encoder=1e-3,

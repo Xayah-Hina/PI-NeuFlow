@@ -7,6 +7,7 @@ import yaml
 import os
 import random
 import typing
+import types
 
 
 class PINeuFlowDataset(torch.utils.data.Dataset):
@@ -19,8 +20,11 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
                  device: torch.device,
                  ):
         self.images = PINeuFlowDataset._load_images(dataset_path, dataset_type, downscale, device, use_preload, use_fp16)  # [T, V, H, W, C]
-        self.poses, self.focals, self.widths, self.heights, self.nears, self.fars = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload)
-        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float32).view(-1, 1).to(device=device)
+        self.poses, self.focals, self.widths, self.heights, self.extra_params = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload)
+        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float32).view(-1, 1)
+
+        if use_preload:
+            self.times = self.times.to(device=device)
 
         # visualize_poses(self.poses, size=0.1)
 
@@ -119,13 +123,38 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             widths = widths // downscale
             heights = heights // downscale
 
+            voxel_transform = torch.tensor(scene_info['voxel_transform'], dtype=torch.float32)
+            voxel_scale = torch.tensor(scene_info['voxel_scale'])
+            s_min = torch.tensor(scene_info['s_min'])
+            s_max = torch.tensor(scene_info['s_max'])
+            s_w2s = torch.inverse(voxel_transform).expand([4, 4])
+            s2w = torch.inverse(s_w2s)
+            s_scale = voxel_scale.expand([3])
+
             if use_preload:
                 poses = poses.to(device=device)
                 focals = focals.to(device=device)
                 nears = nears.to(device=device)
                 fars = fars.to(device=device)
+                voxel_transform = voxel_transform.to(device=device)
+                voxel_scale = voxel_scale.to(device=device)
+                s_min = s_min.to(device=device)
+                s_max = s_max.to(device=device)
+                s_w2s = s_w2s.to(device=device)
+                s2w = s2w.to(device=device)
+                s_scale = s_scale.to(device=device)
 
-            return poses, focals, widths, heights, nears, fars
+            extra_params = types.SimpleNamespace()
+            extra_params.nears = nears
+            extra_params.fars = fars
+            extra_params.voxel_transform = voxel_transform
+            extra_params.voxel_scale = voxel_scale
+            extra_params.s_min = s_min
+            extra_params.s_max = s_max
+            extra_params.s_w2s = s_w2s
+            extra_params.s2w = s2w
+            extra_params.s_scale = s_scale
+            return poses, focals, widths, heights, extra_params
 
 
 class FrustumsSampler:
@@ -140,26 +169,26 @@ class FrustumsSampler:
         self.randomize = randomize
 
     def collate(self, batch: list):
-        target_images = torch.stack([single['image'] for single in batch])  # [B, H, W, C]
-        target_poses = torch.stack([single['pose'] for single in batch])  # [B, 4, 4]
-        target_focals = torch.stack([single['focal'] for single in batch])  # [B]
-        train_times = torch.stack([single['time'] for single in batch])  # [B, 1]
-        dirs, train_pixels = FrustumsSampler._sample_uv_dirs_images(images=target_images, focals=target_focals, width=self.dataset.widths, height=self.dataset.heights, num_rays=self.num_rays, randomize=self.randomize, device=target_images.device)  # [B, N, 3]
+        images = torch.stack([single['image'] for single in batch])  # [B, H, W, C]
+        poses = torch.stack([single['pose'] for single in batch])  # [B, 4, 4]
+        focals = torch.stack([single['focal'] for single in batch])  # [B]
+        times = torch.stack([single['time'] for single in batch])  # [B, 1]
+        dirs, pixels = FrustumsSampler._sample_uv_dirs_images(images=images, focals=focals, width=self.dataset.widths, height=self.dataset.heights, num_rays=self.num_rays, randomize=self.randomize, device=images.device)  # [B, N, 3]
 
-        train_rays_d = torch.einsum('bij,bnj->bni', target_poses[:, :3, :3], dirs)  # (B, N, 3)
-        train_rays_o = target_poses[:, None, :3, 3].expand(train_rays_d.shape)  # (B, N, 3)
+        rays_d = torch.einsum('bij,bnj->bni', poses[:, :3, :3], dirs)  # (B, N, 3)
+        rays_o = poses[:, None, :3, 3].expand_as(rays_d)  # (B, N, 3)
 
         return {
-            'train_pixels': train_pixels,  # [B, N, C]
-            'train_times': train_times,  # [B, 1]
-            'train_rays_o': train_rays_o,  # [B, N, 3]
-            'train_rays_d': train_rays_d,  # [B, N, 3]
+            'pixels': pixels,  # [B, N, C]
+            'times': times,  # [B, 1]
+            'rays_o': rays_o,  # [B, N, 3]
+            'rays_d': rays_d,  # [B, N, 3]
         }
 
     def dataloader(self):
         return torch.utils.data.DataLoader(
             dataset=self.dataset,
-            batch_size=10,
+            batch_size=2,
             collate_fn=self.collate,
             shuffle=True,
             num_workers=0,
