@@ -185,7 +185,7 @@ class FrustumsSampler:
             'rays_d': rays_d,  # [B, N, 3]
         }
 
-    def dataloader(self):
+    def dataloader(self, batch_size):
         return torch.utils.data.DataLoader(
             dataset=self.dataset,
             batch_size=2,

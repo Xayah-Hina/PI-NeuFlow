@@ -58,9 +58,9 @@ class Trainer:
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
-        sampler = FrustumsSampler(dataset=train_dataset, num_rays=4096)
+        sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024)
         renderer = VolumeRenderer()
-        train_loader = sampler.dataloader()
+        train_loader = sampler.dataloader(batch_size=1)
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
 
