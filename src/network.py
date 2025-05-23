@@ -4,6 +4,77 @@ import typing
 import types
 
 
+class NeRFSmall(torch.nn.Module):
+    def __init__(self,
+                 num_layers=3,
+                 hidden_dim=64,
+                 geo_feat_dim=15,
+                 num_layers_color=2,
+                 hidden_dim_color=16,
+                 input_ch=3,
+                 dtype=torch.float32,
+                 ):
+        super(NeRFSmall, self).__init__()
+        self.encoder_xyzt = get_encoder('hyfluid')
+
+        self.input_ch = self.encoder_xyzt.num_levels * self.encoder_xyzt.features_per_level
+        self.rgb = torch.nn.Parameter(torch.tensor([0.0], dtype=dtype))
+
+        # sigma network
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+        self.geo_feat_dim = geo_feat_dim
+
+        sigma_net = []
+        for l in range(num_layers):
+            if l == 0:
+                in_dim = self.input_ch
+            else:
+                in_dim = hidden_dim
+
+            if l == num_layers - 1:
+                out_dim = 1  # 1 sigma + 15 SH features for color
+            else:
+                out_dim = hidden_dim
+
+            sigma_net.append(torch.nn.Linear(in_dim, out_dim, bias=False, dtype=dtype))
+
+        self.sigma_net = torch.nn.ModuleList(sigma_net)
+
+        self.color_net = []
+        for l in range(num_layers_color):
+            if l == 0:
+                in_dim = 1
+            else:
+                in_dim = hidden_dim_color
+
+            if l == num_layers_color - 1:
+                out_dim = 1
+            else:
+                out_dim = hidden_dim_color
+
+            self.color_net.append(torch.nn.Linear(in_dim, out_dim, bias=True, dtype=dtype))
+
+    def forward(self, x):
+        h = x[..., :self.input_ch]
+        for l in range(self.num_layers):
+            h = self.sigma_net[l](h)
+            h = torch.nn.functional.relu(h, inplace=True)
+
+        sigma = h
+        return sigma
+
+    def get_params(self, learning_rate_encoder, learning_rate_network):
+
+        params = [
+            {'params': self.encoder_xyzt.parameters(), 'lr': learning_rate_encoder, 'eps': 1e-15},
+            {'params': self.sigma_net.parameters(), 'lr': learning_rate_network, 'weight_decay': 1e-6},
+            {'params': self.rgb, 'lr': learning_rate_network, 'eps': 1e-15},
+        ]
+
+        return params
+
+
 class _trunc_exp(torch.autograd.Function):
     @staticmethod
     @torch.amp.custom_fwd(cast_inputs=torch.float32, device_type='cuda')  # cast to float32

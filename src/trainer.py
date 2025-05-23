@@ -1,5 +1,5 @@
 from .dataset import PINeuFlowDataset, FrustumsSampler
-from .network import NetworkPINeuFlow
+from .network import NetworkPINeuFlow, NeRFSmall
 from .renderer import VolumeRenderer
 from .visualizer import visualize_rays
 import torch
@@ -22,15 +22,16 @@ class Trainer:
                  ):
         # self.model
         if model == 'PI-NeuFlow':
-            self.model = NetworkPINeuFlow(
-                encoding_xyzt='hyfluid',
-                encoding_dir='sphere_harmonics',
-                num_layers_sigma=3,
-                num_layers_color=3,
-                hidden_dim_sigma=64,
-                hidden_dim_color=64,
-                geo_feat_dim=32,
-            ).to(device)
+            # self.model = NetworkPINeuFlow(
+            #     encoding_xyzt='hyfluid',
+            #     encoding_dir='sphere_harmonics',
+            #     num_layers_sigma=3,
+            #     num_layers_color=3,
+            #     hidden_dim_sigma=64,
+            #     hidden_dim_color=64,
+            #     geo_feat_dim=32,
+            # ).to(device)
+            self.model = NeRFSmall().to(device)
         else:
             raise NotImplementedError(f"Model {model} is not implemented.")
 
