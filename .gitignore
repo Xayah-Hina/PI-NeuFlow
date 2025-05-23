@@ -1,3 +1,5 @@
+cuda_extensions/ffmlp/build
+cuda_extensions/ffmlp/ffmlp.egg-info
 cuda_extensions/freqencoder/build
 cuda_extensions/freqencoder/freqencoder.egg-info
 cuda_extensions/gridencoder/build

@@ -5,6 +5,7 @@ from torch.autograd import Function
 try:
     import _freqencoder as _backend
 except ImportError:
+    print(f"Building _freqencoder backend...")
     from .backend import _backend
 
 

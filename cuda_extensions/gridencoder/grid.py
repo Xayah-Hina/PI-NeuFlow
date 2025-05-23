@@ -7,6 +7,7 @@ from torch.autograd import Function
 try:
     import _gridencoder as _backend
 except ImportError:
+    print(f"Building gridencoder backend...")
     from .backend import _backend
 
 _gridtype_to_id = {

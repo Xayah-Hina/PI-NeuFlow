@@ -5,6 +5,7 @@ from torch.autograd import Function
 try:
     import _shencoder as _backend
 except ImportError:
+    print(f"Building SHEncoder backend...")
     from .backend import _backend
 
 class _sh_encoder(Function):

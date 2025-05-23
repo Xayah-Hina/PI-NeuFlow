@@ -8,6 +8,7 @@ from torch.autograd import Function
 try:
     import _raymarching as _backend
 except ImportError:
+    print(f"Building raymarching backend...")
     from .backend import _backend
 
 
