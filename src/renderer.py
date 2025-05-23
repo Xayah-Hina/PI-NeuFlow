@@ -80,14 +80,16 @@ class VolumeRenderer:
         return batch_points_with_time, batch_dist_vals
 
     @staticmethod
-    def render(network, rays_o, rays_d, time, extra_params):
+    def render(network, rays_o, rays_d, time, extra_params, randomize):
         """
         :param network: Network
         :param rays_o: [N, 3]
         :param rays_d: [N, 3]
         :param time: [1]
         :param extra_params: ExtraParams
+        :param randomize: bool
         :return:
+            rgb_map: [N, 3]
         """
         N = rays_d.shape[0]
         num_samples = 192
@@ -100,10 +102,12 @@ class VolumeRenderer:
             num_samples=num_samples,
             near=extra_params.nears[0],
             far=extra_params.fars[0],
-            randomize=True,
+            randomize=randomize,
         )
         points_with_time_flat = points_with_time.reshape(-1, 4)  # [N * num_samples, 4]
         bbox_mask = inside_mask(points_with_time_flat[..., :3], extra_params.s_w2s, extra_params.s_scale, extra_params.s_min, extra_params.s_max, to_float=False)  # [N * num_samples]
+        if not torch.any(bbox_mask):
+            return torch.zeros_like(rays_o)
         points_time_flat_filtered = points_with_time_flat[bbox_mask]  # [filtered / N * num_samples, 4]
         rays_d_flat = rays_d[:, None, :].expand(N, num_samples, 3).reshape(-1, 3)  # [N * num_samples, 3]
         rays_d_flat_filtered = rays_d_flat[bbox_mask]  # [filtered / N * num_samples, 3]

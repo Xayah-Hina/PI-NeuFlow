@@ -38,7 +38,10 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
         # visualize_poses(self.poses, size=0.1)
 
     def __getitem__(self, index):
-        time_shift = random.uniform(-0.5, 0.5)
+        if self.states.dataset_type == 'train':
+            time_shift = random.uniform(-0.5, 0.5)
+        else:
+            time_shift = 0
         video_index = random.randint(0, self.poses.shape[0] - 1)
 
         if index == 0 and time_shift <= 0:
@@ -167,12 +170,12 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
 
 
 class FrustumsSampler:
-    def __init__(self, dataset: PINeuFlowDataset, num_rays, randomize: bool = True):
+    def __init__(self, dataset: PINeuFlowDataset, num_rays, randomize: bool):
         # self.dataset
         self.dataset = dataset
 
         # self.rays_per_iter
-        self.num_rays = num_rays
+        self.num_rays = num_rays if dataset.states.dataset_type == 'train' else -1
 
         # self.randomize
         self.randomize = randomize
@@ -182,10 +185,7 @@ class FrustumsSampler:
         poses = torch.stack([single['pose'] for single in batch])  # [B, 4, 4]
         focals = torch.stack([single['focal'] for single in batch])  # [B]
         times = torch.stack([single['time'] for single in batch])  # [B, 1]
-        dirs, pixels = FrustumsSampler._sample_uv_dirs_images(images=images, focals=focals, width=self.dataset.widths, height=self.dataset.heights, num_rays=self.num_rays, randomize=self.randomize, device=images.device)  # [B, N, 3]
-
-        rays_d = torch.einsum('bij,bnj->bni', poses[:, :3, :3], dirs)  # (B, N, 3)
-        rays_o = poses[:, None, :3, 3].expand_as(rays_d)  # (B, N, 3)
+        rays_o, rays_d, pixels = FrustumsSampler._sample_rays_pixels(images=images, poses=poses, focals=focals, width=self.dataset.widths, height=self.dataset.heights, num_rays=self.num_rays, randomize=self.randomize, device=images.device)  # [B, N, 3]
 
         return {
             'pixels': pixels,  # [B, N, C]
@@ -199,13 +199,14 @@ class FrustumsSampler:
             dataset=self.dataset,
             batch_size=batch_size,
             collate_fn=self.collate,
-            shuffle=True,
+            shuffle=self.dataset.states.dataset_type == 'train',
             num_workers=0,
         )
 
     @staticmethod
-    def _sample_uv_dirs_images(
+    def _sample_rays_pixels(
             images: torch.Tensor,  # [N, H, W, 3]
+            poses: torch.Tensor,  # [N, 4, 4]
             focals: torch.Tensor,  # [N]
             width: int,
             height: int,
@@ -217,36 +218,50 @@ class FrustumsSampler:
         Sample UV positions and directions, and interpolate corresponding pixel values.
 
         Returns:
-        - dirs_normalized: [N, num_rays, 3]
-        - sampled_rgb: [N, num_rays, 3]
+        - dirs_normalized: [N, num_rays, 3] or [N, H, W, 3]
+        - sampled_rgb: [N, num_rays, 3] or [N, H, W, 3]
         """
         N = focals.shape[0]
 
-        # 1. Sample UV (pixel) coordinates
-        u = torch.randint(0, width, (num_rays,), device=device, dtype=torch.float32)
-        v = torch.randint(0, height, (num_rays,), device=device, dtype=torch.float32)
+        if num_rays == -1:
+            u, v = torch.meshgrid(torch.linspace(0, width - 1, width, device=device), torch.linspace(0, height - 1, height, device=device), indexing='xy')  # (H, W), (H, W)
+            u_normalized, v_normalized = (u - width * 0.5) / focals[:, None, None], (v - height * 0.5) / focals[:, None, None]  # (N, H, W), (N, H, W)
+            dirs = torch.stack([u_normalized, -v_normalized, -torch.ones_like(u_normalized)], dim=-1)  # (N, H, W, 3)
+            dirs_normalized = torch.nn.functional.normalize(dirs, dim=-1)  # (N, H, W, 3)
+            rays_d = torch.einsum('nij,nhwj->nhwi', poses[:, :3, :3], dirs_normalized)
+            rays_o = poses[:, None, None, :3, 3].expand_as(rays_d)
+            rays_d = rays_d.reshape(N, -1, 3)
+            rays_o = rays_o.reshape(N, -1, 3)
+            sampled_rgb = images.reshape(N, -1, 3)
+        else:
+            # 1. Sample UV (pixel) coordinates
+            u = torch.randint(0, width, (num_rays,), device=device, dtype=torch.float32)
+            v = torch.randint(0, height, (num_rays,), device=device, dtype=torch.float32)
 
-        if randomize:
-            u = u + torch.rand_like(u)
-            v = v + torch.rand_like(v)
+            if randomize:
+                u = u + torch.rand_like(u)
+                v = v + torch.rand_like(v)
 
-        # 2. Compute directions
-        u_normalized = (u[None, :] - width * 0.5) / focals[:, None]
-        v_normalized = (v[None, :] - height * 0.5) / focals[:, None]
-        dirs = torch.stack([u_normalized, -v_normalized, -torch.ones_like(u_normalized)], dim=-1)
-        dirs_normalized = torch.nn.functional.normalize(dirs, dim=-1)  # [N, num_rays, 3]
+            # 2. Compute directions
+            u_normalized = (u[None, :] - width * 0.5) / focals[:, None]
+            v_normalized = (v[None, :] - height * 0.5) / focals[:, None]
+            dirs = torch.stack([u_normalized, -v_normalized, -torch.ones_like(u_normalized)], dim=-1)
+            dirs_normalized = torch.nn.functional.normalize(dirs, dim=-1)  # [N, num_rays, 3]
 
-        # 3. Interpolate image pixel values at (u, v)
-        # grid_sample expects coords in [-1, 1] normalized format
-        grid_u = (u / (width - 1)) * 2 - 1  # [num_rays]
-        grid_v = (v / (height - 1)) * 2 - 1  # [num_rays]
-        grid = torch.stack([grid_u, grid_v], dim=-1)  # [num_rays, 2]
-        grid = grid[None].expand(N, -1, -1)  # [N, num_rays, 2]
-        grid = grid.unsqueeze(2)  # [N, num_rays, 1, 2] for grid_sample
+            rays_d = torch.einsum('bij,bnj->bni', poses[:, :3, :3], dirs_normalized)  # (B, N, 3)
+            rays_o = poses[:, None, :3, 3].expand_as(rays_d)  # (B, N, 3)
 
-        # reshape images for grid_sample: [N, C, H, W]
-        images_ = images.permute(0, 3, 1, 2)  # [N, 3, H, W]
-        sampled_rgb = torch.nn.functional.grid_sample(images_, grid, align_corners=True)  # [N, 3, num_rays, 1]
-        sampled_rgb = sampled_rgb.squeeze(-1).permute(0, 2, 1)  # [N, num_rays, 3]
+            # 3. Interpolate image pixel values at (u, v)
+            # grid_sample expects coords in [-1, 1] normalized format
+            grid_u = (u / (width - 1)) * 2 - 1  # [num_rays]
+            grid_v = (v / (height - 1)) * 2 - 1  # [num_rays]
+            grid = torch.stack([grid_u, grid_v], dim=-1)  # [num_rays, 2]
+            grid = grid[None].expand(N, -1, -1)  # [N, num_rays, 2]
+            grid = grid.unsqueeze(2)  # [N, num_rays, 1, 2] for grid_sample
 
-        return dirs_normalized, sampled_rgb  # [N, num_rays, 3]
+            # reshape images for grid_sample: [N, C, H, W]
+            images_ = images.permute(0, 3, 1, 2)  # [N, 3, H, W]
+            sampled_rgb = torch.nn.functional.grid_sample(images_, grid, align_corners=True)  # [N, 3, num_rays, 1]
+            sampled_rgb = sampled_rgb.squeeze(-1).permute(0, 2, 1)  # [N, num_rays, 3]
+
+        return rays_o, rays_d, sampled_rgb  # [N, num_rays, 3]
