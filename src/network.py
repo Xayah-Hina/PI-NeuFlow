@@ -124,7 +124,6 @@ class NetworkPINeuFlow(torch.nn.Module):
         self.sigma_net = torch.nn.ModuleList(sigma_net)
 
         # self.color_net
-        self.encoder_dir = get_encoder(encoding_dir)
         color_net = []
         for l in range(num_layers_color):
             if l == 0:
