@@ -1,13 +1,13 @@
-cuda_extensions/ffmlp/build
-cuda_extensions/ffmlp/ffmlp.egg-info
-cuda_extensions/freqencoder/build
-cuda_extensions/freqencoder/freqencoder.egg-info
-cuda_extensions/gridencoder/build
-cuda_extensions/gridencoder/gridencoder.egg-info
-cuda_extensions/raymarching/build
-cuda_extensions/raymarching/raymarching.egg-info
-cuda_extensions/shencoder/build
-cuda_extensions/shencoder/shencoder.egg-info
+src/cuda_extensions/ffmlp/build
+src/cuda_extensions/ffmlp/ffmlp.egg-info
+src/cuda_extensions/freqencoder/build
+src/cuda_extensions/freqencoder/freqencoder.egg-info
+src/cuda_extensions/gridencoder/build
+src/cuda_extensions/gridencoder/gridencoder.egg-info
+src/cuda_extensions/raymarching/build
+src/cuda_extensions/raymarching/raymarching.egg-info
+src/cuda_extensions/shencoder/build
+src/cuda_extensions/shencoder/shencoder.egg-info
 
 .idea
 __pycache__
