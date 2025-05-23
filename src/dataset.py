@@ -19,29 +19,38 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
                  use_fp16: bool,
                  device: torch.device,
                  ):
+        # self.images
         self.images = PINeuFlowDataset._load_images(dataset_path, dataset_type, downscale, device, use_preload, use_fp16)  # [T, V, H, W, C]
-        self.poses, self.focals, self.widths, self.heights, self.extra_params = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload)
-        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float32).view(-1, 1)
 
+        # self.poses
+        self.poses, self.focals, self.widths, self.heights, self.extra_params = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload)
+
+        # self.times
+        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float32).view(-1, 1)
         if use_preload:
             self.times = self.times.to(device=device)
 
+        # self.states
+        self.states = types.SimpleNamespace()
+        self.states.dataset_type = dataset_type
+
+        # visualize
         # visualize_poses(self.poses, size=0.1)
 
     def __getitem__(self, index):
         time_shift = random.uniform(-0.5, 0.5)
         video_index = random.randint(0, self.poses.shape[0] - 1)
 
-        if index == 0 and time_shift < 0:
+        if index == 0 and time_shift <= 0:
             target_image = self.images[index, video_index]
             target_time = self.times[index]
-        elif index == self.images.shape[0] - 1 and time_shift > 0:
+        elif index == self.images.shape[0] - 1 and time_shift >= 0:
             target_image = self.images[index, video_index]
             target_time = self.times[index]
         else:
-            if time_shift > 0:
-                target_image = time_shift * self.images[index, video_index] + (1 - time_shift) * self.images[index + 1, video_index]
-                target_time = time_shift * self.times[index] + (1 - time_shift) * self.times[index + 1]
+            if time_shift >= 0:
+                target_image = (1 - time_shift) * self.images[index, video_index] + time_shift * self.images[index + 1, video_index]
+                target_time = (1 - time_shift) * self.times[index] + time_shift * self.times[index + 1]
             else:
                 target_image = (1 + time_shift) * self.images[index, video_index] + (-time_shift) * self.images[index - 1, video_index]
                 target_time = (1 + time_shift) * self.times[index] + (-time_shift) * self.times[index - 1]
@@ -188,7 +197,7 @@ class FrustumsSampler:
     def dataloader(self, batch_size):
         return torch.utils.data.DataLoader(
             dataset=self.dataset,
-            batch_size=2,
+            batch_size=batch_size,
             collate_fn=self.collate,
             shuffle=True,
             num_workers=0,

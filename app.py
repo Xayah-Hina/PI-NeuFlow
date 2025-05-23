@@ -38,3 +38,14 @@ if __name__ == "__main__":
         valid_dataset=None,
         max_epochs=2,
     )
+
+    trainer.test(
+        test_dataset=PINeuFlowDataset(
+            dataset_path=os.path.join(cfg.dataset.data_dir, cfg.dataset.dataset_dir),
+            dataset_type='test',
+            downscale=cfg.dataset.downscale,
+            use_preload=cfg.dataset.use_preload,
+            use_fp16=cfg.dataset.use_fp16,
+            device=device,
+        ),
+    )

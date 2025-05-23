@@ -59,7 +59,6 @@ class Trainer:
         self.model.train()
 
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024)
-        renderer = VolumeRenderer()
         train_loader = sampler.dataloader(batch_size=1)
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
@@ -71,7 +70,7 @@ class Trainer:
                     self.states.iteration += 1
 
                     self.optimizer.zero_grad()
-                    rgb_map = renderer.render(
+                    rgb_map = VolumeRenderer.render(
                         network=self.model,
                         rays_o=data['rays_o'][_],  # [N, C]
                         rays_d=data['rays_d'][_],  # [1]
@@ -89,5 +88,5 @@ class Trainer:
 
                     # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
 
-    def test(self, train_dataset: torch.utils.data.Dataset):
+    def test(self, test_dataset: PINeuFlowDataset):
         self.model.eval()
