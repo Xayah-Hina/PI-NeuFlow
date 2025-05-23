@@ -1,0 +1,11 @@
+cuda_extensions/freqencoder/build
+cuda_extensions/freqencoder/freqencoder.egg-info
+cuda_extensions/gridencoder/build
+cuda_extensions/gridencoder/gridencoder.egg-info
+cuda_extensions/raymarching/build
+cuda_extensions/raymarching/raymarching.egg-info
+cuda_extensions/shencoder/build
+cuda_extensions/shencoder/shencoder.egg-info
+
+.idea
+__pycache__
