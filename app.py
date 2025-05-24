@@ -36,8 +36,15 @@ if __name__ == "__main__":
                 use_fp16=cfg.dataset.use_fp16,
                 device=device,
             ),
-            valid_dataset=None,
-            max_epochs=2,
+            valid_dataset=PINeuFlowDataset(
+                dataset_path=os.path.join(cfg.dataset.data_dir, cfg.dataset.dataset_dir),
+                dataset_type='val',
+                downscale=cfg.dataset.downscale,
+                use_preload=cfg.dataset.use_preload,
+                use_fp16=cfg.dataset.use_fp16,
+                device=device,
+            ),
+            max_epochs=50,
         )
     elif cfg.train.mode == 'test':
         trainer.test(

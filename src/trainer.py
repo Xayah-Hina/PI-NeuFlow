@@ -1,5 +1,5 @@
 from .dataset import PINeuFlowDataset, FrustumsSampler
-from .network import NetworkPINeuFlow, NeRFSmall
+from .network import NetworkPINeuFlow
 from .renderer import VolumeRenderer
 from .visualizer import visualize_rays
 import torch
@@ -31,7 +31,6 @@ class Trainer:
                 hidden_dim_color=64,
                 geo_feat_dim=32,
             ).to(device)
-            # self.model = NeRFSmall().to(device)
         else:
             raise NotImplementedError(f"Model {model} is not implemented.")
 
@@ -56,6 +55,8 @@ class Trainer:
         # debug
         self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
 
+        self.compiled_render = torch.compile(VolumeRenderer.render)
+
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
@@ -71,7 +72,7 @@ class Trainer:
                     self.states.iteration += 1
 
                     self.optimizer.zero_grad()
-                    rgb_map = VolumeRenderer.render(
+                    rgb_map = self.compiled_render(
                         network=self.model,
                         rays_o=data['rays_o'][_],  # [N, C]
                         rays_d=data['rays_d'][_],  # [1]
