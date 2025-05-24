@@ -190,30 +190,31 @@ class Trainer:
         sampler = FrustumsSampler(dataset=test_dataset, num_rays=-1, randomize=False)
         train_loader = sampler.dataloader(batch_size=1)
 
-        for i, data in enumerate(tqdm.tqdm(train_loader)):
-            data: dict
+        with torch.no_grad():
+            for i, data in enumerate(tqdm.tqdm(train_loader)):
+                data: dict
 
-            for _ in range(train_loader.batch_size):
-                self.states.iteration += 1
+                for _ in range(train_loader.batch_size):
+                    self.states.iteration += 1
 
-                self.optimizer.zero_grad()
-                gt_pixels = data['pixels'][_].reshape(test_dataset.heights, test_dataset.widths, 3)  # [H, W, 3]
-                rgb_map_final = []
-                total_ray_size = data['rays_o'][_].shape[0]
-                batch_ray_size = 1024 * 8
-                for start in range(0, total_ray_size, batch_ray_size):
-                    rgb_map = self.compiled_render(
-                        network=self.model,
-                        rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
-                        rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
-                        time=data['times'][_],  # [1]
-                        extra_params=test_dataset.extra_params,
-                        randomize=False,
-                    )  # [N, 3]
-                    rgb_map_final.append(rgb_map.detach().cpu())
-                rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
+                    self.optimizer.zero_grad()
+                    gt_pixels = data['pixels'][_].reshape(test_dataset.heights, test_dataset.widths, 3)  # [H, W, 3]
+                    rgb_map_final = []
+                    total_ray_size = data['rays_o'][_].shape[0]
+                    batch_ray_size = 1024 * 8
+                    for start in range(0, total_ray_size, batch_ray_size):
+                        rgb_map = self.compiled_render(
+                            network=self.model,
+                            rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
+                            rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
+                            time=data['times'][_],  # [1]
+                            extra_params=test_dataset.extra_params,
+                            randomize=False,
+                        )  # [N, 3]
+                        rgb_map_final.append(rgb_map.detach().cpu())
+                    rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
 
-                rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
-                gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
-                imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
-                imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
+                    rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
+                    gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
+                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
+                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
