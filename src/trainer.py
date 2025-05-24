@@ -106,6 +106,10 @@ class Trainer:
     def test(self, test_dataset: PINeuFlowDataset):
         import imageio.v3 as imageio
         import numpy as np
+        import gc
+        torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.ipc_collect()
         self.model.eval()
 
         sampler = FrustumsSampler(dataset=test_dataset, num_rays=-1, randomize=False)
@@ -123,7 +127,7 @@ class Trainer:
                 total_ray_size = data['rays_o'][_].shape[0]
                 batch_ray_size = 1024 * 8
                 for start in range(0, total_ray_size, batch_ray_size):
-                    rgb_map = VolumeRenderer.render(
+                    rgb_map = self.compiled_render(
                         network=self.model,
                         rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                         rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
