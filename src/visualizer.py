@@ -2,7 +2,7 @@ import numpy as np
 import trimesh
 
 
-def visualize_poses(poses, size=0.1):
+def visualize_poses(poses, size=0.1, func=None):
     # poses: [B, 4, 4]
 
     axes = trimesh.creation.axis(axis_length=4)
@@ -10,6 +10,8 @@ def visualize_poses(poses, size=0.1):
     box.colors = np.array([[128, 128, 128]] * len(box.entities))
     objects = [axes, box]
 
+    origins = []
+    directions = []
     for pose in poses:
         # a camera is visualized with 8 line segments.
         pos = pose[:3, 3]
@@ -25,6 +27,16 @@ def visualize_poses(poses, size=0.1):
         segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
         segs = trimesh.load_path(segs)
         objects.append(segs)
+        if func:
+            origins.append(o)
+            directions.append(dir)
+    if func:
+        origins = np.array(origins)
+        directions = np.array(directions)
+        c_opt, radius, pts = func(origins, directions)
+        sphere = trimesh.creation.uv_sphere(radius=radius)
+        sphere.apply_translation(c_opt)
+        objects.append(sphere)
 
     trimesh.Scene(objects).show()
 

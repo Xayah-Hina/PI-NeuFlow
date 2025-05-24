@@ -1,4 +1,5 @@
 from .visualizer import visualize_poses
+from scipy.optimize import minimize
 import torch
 import torchvision.io as io
 import numpy as np
@@ -35,7 +36,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
         self.states.dataset_type = dataset_type
 
         # visualize
-        # visualize_poses(self.poses, size=0.1)
+        visualize_poses(self.poses.detach().cpu(), size=0.1, func=self.find_min_enclosing_sphere_on_rays)
 
     def __getitem__(self, index):
         if self.states.dataset_type == 'train':
@@ -143,6 +144,9 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             s2w = torch.inverse(s_w2s)
             s_scale = voxel_scale.expand([3])
 
+            new_poses = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy())
+            poses = torch.tensor(new_poses, dtype=torch.float32).to(device=device)
+
             if use_preload:
                 poses = poses.to(device=device)
                 focals = focals.to(device=device)
@@ -167,6 +171,60 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             extra_params.s2w = s2w
             extra_params.s_scale = s_scale
             return poses, focals, widths, heights, extra_params
+
+    @staticmethod
+    def _adjust_poses(poses):
+        origins = []
+        directions = []
+        size = 0.1
+        for pose in poses:
+            # a camera is visualized with 8 line segments.
+            pos = pose[:3, 3]
+            a = pos + size * pose[:3, 0] + size * pose[:3, 1] - size * pose[:3, 2]
+            b = pos - size * pose[:3, 0] + size * pose[:3, 1] - size * pose[:3, 2]
+            c = pos - size * pose[:3, 0] - size * pose[:3, 1] - size * pose[:3, 2]
+            d = pos + size * pose[:3, 0] - size * pose[:3, 1] - size * pose[:3, 2]
+
+            dir = (a + b + c + d) / 4 - pos
+            dir = dir / (np.linalg.norm(dir) + 1e-8)
+            o = pos + dir * 3
+            origins.append(o)
+            directions.append(dir)
+        origins = np.array(origins)
+        directions = np.array(directions)
+        c_opt, radius, pts = PINeuFlowDataset.find_min_enclosing_sphere_on_rays(origins, directions)
+
+        for pose in poses:
+            pose[:3, 3] -= c_opt
+        return poses
+
+    @staticmethod
+    def find_min_enclosing_sphere_on_rays(origins, directions):
+        """
+        origins: [N, 3]
+        directions: [N, 3]
+        """
+        N = origins.shape[0]
+
+        # 初始化：t 全为 0（即只考虑相机原点）
+        t_init = np.zeros(N)
+        center_init = origins.mean(axis=0)
+        x0 = np.concatenate([center_init, t_init])
+
+        def objective(x):
+            c = x[:3]
+            t = x[3:]
+            pts = origins + directions * t[:, None]
+            dists = np.linalg.norm(pts - c[None, :], axis=1)
+            return np.max(dists)
+
+        res = minimize(objective, x0, method='L-BFGS-B')
+        x_opt = res.x
+        c_opt = x_opt[:3]
+        t_opt = x_opt[3:]
+        pts = origins + directions * t_opt[:, None]
+        radius = np.max(np.linalg.norm(pts - c_opt[None, :], axis=1))
+        return c_opt, radius, pts
 
 
 class FrustumsSampler:

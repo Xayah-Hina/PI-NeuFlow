@@ -55,7 +55,11 @@ class Trainer:
         # debug
         self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
 
-        self.compiled_render = torch.compile(VolumeRenderer.render)
+        try:
+            self.compiled_render = torch.compile(VolumeRenderer.render)
+        except Exception:
+            print("torch.compile is not available. Using the original render function.")
+            self.compiled_render = VolumeRenderer.render
 
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
