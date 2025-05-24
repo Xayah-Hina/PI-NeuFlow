@@ -289,7 +289,7 @@ class FrustumsSampler:
             u_normalized, v_normalized = (u - width * 0.5) / focals[:, None, None], (v - height * 0.5) / focals[:, None, None]  # (N, H, W), (N, H, W)
             dirs = torch.stack([u_normalized, -v_normalized, -torch.ones_like(u_normalized)], dim=-1)  # (N, H, W, 3)
             dirs_normalized = torch.nn.functional.normalize(dirs, dim=-1)  # (N, H, W, 3)
-            rays_d = torch.einsum('nij,nhwj->nhwi', poses[:, :3, :3], dirs_normalized)
+            rays_d = torch.einsum('nij,nhwj->nhwi', poses[:, :3, :3], dirs_normalized.to(poses.dtype))
             rays_o = poses[:, None, None, :3, 3].expand_as(rays_d)
             rays_d = rays_d.reshape(N, -1, 3)
             rays_o = rays_o.reshape(N, -1, 3)

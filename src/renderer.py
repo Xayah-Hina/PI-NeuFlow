@@ -45,7 +45,7 @@ class VolumeRenderer:
         N = batch_rays_d.shape[0]
         device = batch_rays_d.device
 
-        t_vals = torch.linspace(0., 1., steps=num_samples, device=device).unsqueeze(0)  # [1, num_samples]
+        t_vals = torch.linspace(0., 1., steps=num_samples, device=device, dtype=batch_rays_d.dtype).unsqueeze(0)  # [1, num_samples]
         z_vals = (near * (1. - t_vals) + far * t_vals).expand(N, num_samples)  # [N, num_samples]
 
         if randomize:

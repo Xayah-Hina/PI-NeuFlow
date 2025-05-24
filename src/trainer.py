@@ -2,6 +2,7 @@ from .dataset import PINeuFlowDataset, FrustumsSampler
 from .network import NetworkPINeuFlow
 from .renderer import VolumeRenderer
 from .visualizer import visualize_rays
+from .cuda_extensions import raymarching
 import torch
 import torch.utils.tensorboard
 import tqdm
@@ -38,7 +39,20 @@ class Trainer:
         # self.optimizer
         self.optimizer = torch.optim.RAdam(self.model.get_params(learning_rate_encoder, learning_rate_network), betas=(0.9, 0.99), eps=1e-15)
 
+        # self.scaler
         self.scaler = torch.amp.GradScaler('cuda', enabled=use_fp16)
+
+        # occupancy grid
+        self.cascade = 1
+        self.grid_size = 128
+        self.density_grid = torch.zeros([self.cascade, self.grid_size ** 3]).to(device)
+        self.density_bitfield = torch.zeros(self.cascade * self.grid_size ** 3 // 8, dtype=torch.uint8).to(device)
+        self.mean_density = 0
+        self.iter_density = 0
+        self.step_counter = torch.zeros(16, 2, dtype=torch.int32).to(device)  # 16 is hardcoded for averaging...
+        self.mean_count = 0
+        self.local_step = 0
+        self.bound = 1.0
 
         # self.scheduler
         target_lr_ratio = 0.0001
@@ -65,8 +79,69 @@ class Trainer:
             print("torch.compile is not available. Using the original render function.")
             self.compiled_render = VolumeRenderer.render
 
+    @torch.no_grad()
+    def mark_untrained_grid(self, poses, fx, fy, cx, cy, S=64):
+        # poses: [B, 4, 4]
+
+        B = poses.shape[0]
+
+        X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+        Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+        Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+
+        count = torch.zeros_like(self.density_grid)
+        poses = poses.to(count.device)
+
+        # 5-level loop, forgive me...
+
+        for xs in X:
+            for ys in Y:
+                for zs in Z:
+
+                    # construct points
+                    xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                    coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)  # [N, 3], in [0, 128)
+                    indices = raymarching.morton3D(coords).long()  # [N]
+                    world_xyzs = (2 * coords.float().to(poses.dtpe) / (self.grid_size - 1) - 1).unsqueeze(0)  # [1, N, 3] in [-1, 1]
+
+                    # cascading
+                    for cas in range(self.cascade):
+                        bound = min(2 ** cas, self.bound)
+                        half_grid_size = bound / self.grid_size
+                        # scale to current cascade's resolution
+                        cas_world_xyzs = world_xyzs * (bound - half_grid_size)
+
+                        # split batch to avoid OOM
+                        head = 0
+                        while head < B:
+                            tail = min(head + S, B)
+
+                            # world2cam transform (poses is c2w, so we need to transpose it. Another transpose is needed for batched matmul, so the final form is without transpose.)
+                            cam_xyzs = cas_world_xyzs - poses[head:tail, :3, 3].unsqueeze(1)
+                            cam_xyzs = cam_xyzs @ poses[head:tail, :3, :3]  # [S, N, 3]
+
+                            # query if point is covered by any camera
+                            mask_z = cam_xyzs[:, :, 2] > 0  # [S, N]
+                            mask_x = torch.abs(cam_xyzs[:, :, 0]) < cx / fx * cam_xyzs[:, :, 2] + half_grid_size * 2
+                            mask_y = torch.abs(cam_xyzs[:, :, 1]) < cy / fy * cam_xyzs[:, :, 2] + half_grid_size * 2
+                            mask = (mask_z & mask_x & mask_y).sum(0).reshape(-1)  # [N]
+
+                            # update count
+                            count[cas, indices] += mask
+                            head += S
+
+        # mark untrained grid as -1
+        self.density_grid[count == 0] = -1
+
+        print(f'[mark untrained grid] {(count == 0).sum()} from {self.grid_size ** 3 * self.cascade}')
+
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
+
+        # preprocessing
+        poses = train_dataset.poses
+        self.mark_untrained_grid(poses, train_dataset.focals[0].item(), train_dataset.focals[0].item(), train_dataset.widths / 2, train_dataset.heights / 2)
+        # preprocessing
 
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024, randomize=True)
         train_loader = sampler.dataloader(batch_size=1)
