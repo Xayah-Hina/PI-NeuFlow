@@ -18,6 +18,7 @@ class Trainer:
                  model: typing.Literal['hyfluid', 'PI-NeuFlow'],
                  learning_rate_encoder: float,
                  learning_rate_network: float,
+                 use_fp16: bool,
                  device: torch.device,
                  ):
         # self.model
@@ -37,6 +38,8 @@ class Trainer:
         # self.optimizer
         self.optimizer = torch.optim.RAdam(self.model.get_params(learning_rate_encoder, learning_rate_network), betas=(0.9, 0.99), eps=1e-15)
 
+        self.scaler = torch.amp.GradScaler('cuda', enabled=use_fp16)
+
         # self.scheduler
         target_lr_ratio = 0.0001
         gamma = math.exp(math.log(target_lr_ratio) / 20000)
@@ -48,6 +51,7 @@ class Trainer:
         self.states = types.SimpleNamespace()
         self.states.name = name
         self.states.workspace = workspace
+        self.states.use_fp16 = use_fp16
         self.states.device = device
         self.states.epoch = 0
         self.states.iteration = 0
@@ -76,18 +80,20 @@ class Trainer:
                     self.states.iteration += 1
 
                     self.optimizer.zero_grad()
-                    rgb_map = self.compiled_render(
-                        network=self.model,
-                        rays_o=data['rays_o'][_],  # [N, C]
-                        rays_d=data['rays_d'][_],  # [1]
-                        time=data['times'][_],  # [N, 3]
-                        extra_params=train_dataset.extra_params,
-                        randomize=True,
-                    )
-                    gt_pixels = data['pixels'][_]  # [N, 3]
-                    img_loss = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
-                    img_loss.backward()
-                    self.optimizer.step()
+                    with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
+                        rgb_map = self.compiled_render(
+                            network=self.model,
+                            rays_o=data['rays_o'][_],  # [N, C]
+                            rays_d=data['rays_d'][_],  # [1]
+                            time=data['times'][_],  # [N, 3]
+                            extra_params=train_dataset.extra_params,
+                            randomize=True,
+                        )
+                        gt_pixels = data['pixels'][_]  # [N, 3]
+                        img_loss = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
+                    self.scaler.scale(img_loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                     self.scheduler.step()
 
                     self.writer.add_scalar("train/img_loss", img_loss, self.states.iteration)

@@ -24,16 +24,17 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
         self.images = PINeuFlowDataset._load_images(dataset_path, dataset_type, downscale, device, use_preload, use_fp16)  # [T, V, H, W, C]
 
         # self.poses
-        self.poses, self.focals, self.widths, self.heights, self.extra_params = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload)
+        self.poses, self.focals, self.widths, self.heights, self.extra_params = PINeuFlowDataset._load_camera_calibrations(dataset_path, dataset_type, downscale, device, use_preload, use_fp16)
 
         # self.times
-        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float32).view(-1, 1)
+        self.times = torch.linspace(0, 1, steps=self.images.shape[0], dtype=torch.float16 if use_fp16 else torch.float32).view(-1, 1)
         if use_preload:
             self.times = self.times.to(device=device)
 
         # self.states
         self.states = types.SimpleNamespace()
         self.states.dataset_type = dataset_type
+        self.states.use_fp16 = use_fp16
 
         # visualize
         visualize_poses(self.poses.detach().cpu(), size=0.1, func=self.find_min_enclosing_sphere_on_rays)
@@ -102,7 +103,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             return frames_downscale
 
     @staticmethod
-    def _load_camera_calibrations(dataset_path, dataset_type, downscale, device: torch.device, use_preload: bool):
+    def _load_camera_calibrations(dataset_path, dataset_type, downscale, device: torch.device, use_preload: bool, use_fp16: bool):
         with open(os.path.join(dataset_path, 'scene_info.yaml'), 'r') as f:
             scene_info = yaml.safe_load(f)
             cameras_info = scene_info['training_camera_calibrations'] if dataset_type == 'train' else scene_info['validation_camera_calibrations']
@@ -115,7 +116,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             for path in tqdm.tqdm([os.path.normpath(os.path.join(dataset_path, camera_path)) for camera_path in cameras_info], desc=f'[Loading Camera ({dataset_type})...]'):
                 try:
                     camera_info = np.load(path)
-                    poses.append(torch.tensor(camera_info["cam_transform"], dtype=torch.float32))
+                    poses.append(torch.tensor(camera_info["cam_transform"]))
                     focals.append(float(camera_info["focal"]) * float(camera_info["width"]) / float(camera_info["aperture"]))
                     widths.append(int(camera_info["width"]))
                     heights.append(int(camera_info["height"]))
@@ -126,17 +127,17 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             assert len(set(widths)) == 1, f"Error: Inconsistent widths found: {widths}. All cameras must have the same resolution."
             assert len(set(heights)) == 1, f"Error: Inconsistent heights found: {heights}. All cameras must have the same resolution."
             poses = torch.stack(poses)
-            focals = torch.tensor(focals, dtype=torch.float32)
+            focals = torch.tensor(focals)
             widths = set(widths).pop()
             heights = set(heights).pop()
-            nears = torch.tensor(nears, dtype=torch.float32)
-            fars = torch.tensor(fars, dtype=torch.float32)
+            nears = torch.tensor(nears)
+            fars = torch.tensor(fars)
 
             focals = focals / downscale
             widths = widths // downscale
             heights = heights // downscale
 
-            voxel_transform = torch.tensor(scene_info['voxel_transform'], dtype=torch.float32)
+            voxel_transform = torch.tensor(scene_info['voxel_transform'])
             voxel_scale = torch.tensor(scene_info['voxel_scale'])
             s_min = torch.tensor(scene_info['s_min'])
             s_max = torch.tensor(scene_info['s_max'])
@@ -145,20 +146,20 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             s_scale = voxel_scale.expand([3])
 
             new_poses = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy())
-            poses = torch.tensor(new_poses, dtype=torch.float32).to(device=device)
+            poses = torch.tensor(new_poses).to(device=device)
 
             if use_preload:
-                poses = poses.to(device=device)
-                focals = focals.to(device=device)
-                nears = nears.to(device=device)
-                fars = fars.to(device=device)
-                voxel_transform = voxel_transform.to(device=device)
-                voxel_scale = voxel_scale.to(device=device)
-                s_min = s_min.to(device=device)
-                s_max = s_max.to(device=device)
-                s_w2s = s_w2s.to(device=device)
-                s2w = s2w.to(device=device)
-                s_scale = s_scale.to(device=device)
+                poses = poses.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                focals = focals.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                nears = nears.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                fars = fars.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                voxel_transform = voxel_transform.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                voxel_scale = voxel_scale.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                s_min = s_min.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                s_max = s_max.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                s_w2s = s_w2s.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                s2w = s2w.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
+                s_scale = s_scale.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
 
             extra_params = types.SimpleNamespace()
             extra_params.nears = nears
@@ -293,8 +294,8 @@ class FrustumsSampler:
             sampled_rgb = images.reshape(N, -1, 3)
         else:
             # 1. Sample UV (pixel) coordinates
-            u = torch.randint(0, width, (num_rays,), device=device, dtype=torch.float32)
-            v = torch.randint(0, height, (num_rays,), device=device, dtype=torch.float32)
+            u = torch.randint(0, width, (num_rays,), device=device, dtype=images.dtype)
+            v = torch.randint(0, height, (num_rays,), device=device, dtype=images.dtype)
 
             if randomize:
                 u = u + torch.rand_like(u)
