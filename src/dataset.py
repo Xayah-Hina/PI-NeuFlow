@@ -149,9 +149,6 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             s2w = torch.inverse(s_w2s)
             s_scale = voxel_scale.expand([3])
 
-            new_poses = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy())
-            poses = torch.tensor(new_poses).to(device=device)
-
             if use_preload:
                 poses = poses.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
                 focals = focals.to(torch.float16 if use_fp16 else torch.float32).to(device=device)
