@@ -91,6 +91,8 @@ class Trainer:
 
                     # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
 
+        self.test(valid_dataset)
+
     def test(self, test_dataset: PINeuFlowDataset):
         import imageio.v3 as imageio
         import numpy as np
