@@ -37,7 +37,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
         self.states.use_fp16 = use_fp16
 
         # visualize
-        visualize_poses(self.poses.detach().cpu(), size=0.1, func=self.find_min_enclosing_sphere_on_rays)
+        # visualize_poses(self.poses.detach().cpu(), size=0.1, func=self.find_min_enclosing_sphere_on_rays)
 
     def __getitem__(self, index):
         if self.states.dataset_type == 'train':
@@ -138,6 +138,10 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             heights = heights // downscale
 
             voxel_transform = torch.tensor(scene_info['voxel_transform'])
+            new_poses, new_voxel_transform = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy(), voxel_transform.detach().cpu().numpy())
+            poses = torch.tensor(new_poses)
+            voxel_transform = torch.tensor(new_voxel_transform)
+
             voxel_scale = torch.tensor(scene_info['voxel_scale'])
             s_min = torch.tensor(scene_info['s_min'])
             s_max = torch.tensor(scene_info['s_max'])
@@ -174,7 +178,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             return poses, focals, widths, heights, extra_params
 
     @staticmethod
-    def _adjust_poses(poses):
+    def _adjust_poses(poses, others):
         origins = []
         directions = []
         size = 0.1
@@ -197,7 +201,8 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
 
         for pose in poses:
             pose[:3, 3] -= c_opt
-        return poses
+        others[:3, 3] -= c_opt
+        return poses, others
 
     @staticmethod
     def find_min_enclosing_sphere_on_rays(origins, directions):
