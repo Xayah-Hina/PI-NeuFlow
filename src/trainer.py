@@ -76,8 +76,10 @@ class Trainer:
 
         if use_compile:
             self.compiled_render = torch.compile(VolumeRenderer.render)
+            self.compiled_render_no_grad = torch.compile(VolumeRenderer.render_no_grad)
         else:
             self.compiled_render = VolumeRenderer.render
+            self.compiled_render_no_grad = VolumeRenderer.render_no_grad
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, fx, fy, cx, cy, S=64):
@@ -203,7 +205,7 @@ class Trainer:
                     total_ray_size = data['rays_o'][_].shape[0]
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
-                        rgb_map = self.compiled_render(
+                        rgb_map = self.compiled_render_no_grad(
                             network=self.model,
                             rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                             rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]

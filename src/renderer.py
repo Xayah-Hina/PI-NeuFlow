@@ -125,3 +125,20 @@ class VolumeRenderer:
 
         rgb_map = torch.sum(weights[..., None] * torch.sigmoid(rgbs), dim=-2)
         return rgb_map
+
+    @staticmethod
+    @torch.no_grad()
+    def render_no_grad(network, rays_o, rays_d, time, extra_params, randomize):
+        """
+        :param network: Network
+        :param rays_o: [N, 3]
+        :param rays_d: [N, 3]
+        :param time: [1]
+        :param extra_params: ExtraParams
+        :param randomize: bool
+        :return:
+            rgb_map: [N, 3]
+        """
+        with torch.no_grad():
+            rgb_map = VolumeRenderer.render(network, rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map
