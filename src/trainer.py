@@ -20,6 +20,7 @@ class Trainer:
                  learning_rate_encoder: float,
                  learning_rate_network: float,
                  use_fp16: bool,
+                 use_compile: bool,
                  device: torch.device,
                  ):
         # self.model
@@ -73,10 +74,9 @@ class Trainer:
         # debug
         self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
 
-        try:
+        if use_compile:
             self.compiled_render = torch.compile(VolumeRenderer.render)
-        except Exception:
-            print("torch.compile is not available. Using the original render function.")
+        else:
             self.compiled_render = VolumeRenderer.render
 
     @torch.no_grad()

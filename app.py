@@ -24,6 +24,7 @@ if __name__ == "__main__":
         learning_rate_encoder=1e-3,
         learning_rate_network=1e-3,
         use_fp16=cfg.dataset.use_fp16,
+        use_compile=False,
         device=device
     )
 

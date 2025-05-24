@@ -10,10 +10,10 @@ class DatasetConfig:
 
     # optional options
     data_dir: str = dataclasses.field(default=os.path.abspath(os.path.join(os.getcwd(), 'data')), metadata={'help': 'data directory'})
-    downscale: int = dataclasses.field(default=1, metadata={'help': 'downscale factor for images'})
+    downscale: int = dataclasses.field(default=2, metadata={'help': 'downscale factor for images'})
 
     use_preload: bool = dataclasses.field(default=True, metadata={'help': 'preload all data into GPU, accelerate training but use more GPU memory'})
-    use_fp16: bool = dataclasses.field(default=True, metadata={'help': 'use amp mixed precision training'})
+    use_fp16: bool = dataclasses.field(default=False, metadata={'help': 'use amp mixed precision training'})
 
     def __post_init__(self):
         if not os.path.exists(os.path.join(self.data_dir, self.dataset_dir)):
