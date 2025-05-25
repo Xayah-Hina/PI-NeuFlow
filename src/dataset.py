@@ -269,6 +269,7 @@ class FrustumsSampler:
         self.aabb_train = torch.tensor([-self.bound, -self.bound, -self.bound, self.bound, self.bound, self.bound], dtype=dtype, device=device)  # [xmin, ymin, zmin, xmax, ymax, zmax]
         self.min_near = 0.1
 
+    @torch.compile
     @torch.no_grad()
     def mark_untrained_grid(self, poses, fx, fy, cx, cy, S=64):
         # poses: [B, 4, 4]
@@ -329,6 +330,7 @@ class FrustumsSampler:
         # from .visualizer import visualize_density_grid
         # visualize_density_grid(self.density_grid[0, 0], grid_size=self.grid_size, poses=self.dataset.poses.detach().cpu())
 
+    @torch.compile
     @torch.no_grad()
     def update_extra_state(self, network, decay=0.95, S=128):
         # call before each epoch to update extra states.
