@@ -83,7 +83,7 @@ class Trainer:
             self.compiled_render = VolumeRenderer.render
             self.compiled_render_no_grad = VolumeRenderer.render_no_grad
 
-        self.load_checkpoint(self)
+        self.load_checkpoint(checkpoint=os.path.join(workspace, 'checkpoint.pth'))
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, fx, fy, cx, cy, S=64):
