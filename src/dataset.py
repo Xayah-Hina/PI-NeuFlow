@@ -393,7 +393,7 @@ class FrustumsSampler:
                     indices = torch.cat([indices, occ_indices], dim=0)
                     coords = torch.cat([coords, occ_coords], dim=0)
                     # same below
-                    xyzs = 2 * coords.to(time.dtype)/ (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+                    xyzs = 2 * coords.to(time.dtype) / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
                     bound = min(2 ** cas, self.bound)
                     half_grid_size = bound / self.grid_size
                     half_time_size = 0.5 / self.time_size
@@ -432,7 +432,10 @@ class FrustumsSampler:
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0
 
-        # print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
+        print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128 ** 3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
+
+        from .visualizer import visualize_density_grid
+        visualize_density_grid(self.density_grid[0, 0], grid_size=self.grid_size, poses=None)
 
     def compute_nears_fars(self, rays_o, rays_d):
         nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train, self.min_near)
