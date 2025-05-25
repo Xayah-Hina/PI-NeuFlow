@@ -55,8 +55,30 @@ class NetworkPINeuFlow(torch.nn.Module):
         self.states.num_layers_color = num_layers_color
 
     def forward(self, xyzt, dirs):
+        # sigma
         enc_xyzt = self.encoder_xyzt(xyzt)
+        h = enc_xyzt
+        for l in range(self.states.num_layers_sigma):
+            h = self.sigma_net[l](h)
+            if l != self.states.num_layers_sigma - 1:
+                h = torch.nn.functional.relu(h, inplace=True)
+        sigma = h[..., 0]
+        geo_feat = h[..., 1:]
+
+        # color
         enc_dirs = self.encoder_dir(dirs)
+        h = torch.cat([enc_dirs, geo_feat], dim=-1)
+        for l in range(self.states.num_layers_color):
+            h = self.color_net[l](h)
+            if l != self.states.num_layers_color - 1:
+                h = torch.nn.functional.relu(h, inplace=True)
+        # sigmoid activation for rgb
+        rgbs = torch.sigmoid(h)
+
+        return sigma, rgbs
+
+    def sigma(self, xyzt):
+        enc_xyzt = self.encoder_xyzt(xyzt)
 
         # sigma
         h = enc_xyzt
@@ -67,16 +89,10 @@ class NetworkPINeuFlow(torch.nn.Module):
         sigma = h[..., 0]
         geo_feat = h[..., 1:]
 
-        # color
-        h = torch.cat([enc_dirs, geo_feat], dim=-1)
-        for l in range(self.states.num_layers_color):
-            h = self.color_net[l](h)
-            if l != self.states.num_layers_color - 1:
-                h = torch.nn.functional.relu(h, inplace=True)
-        # sigmoid activation for rgb
-        rgbs = torch.sigmoid(h)
-
-        return sigma, rgbs
+        return {
+            'sigma': sigma,
+            'geo_feat': geo_feat,
+        }
 
     def get_params(self, learning_rate_encoder, learning_rate_network):
 

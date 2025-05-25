@@ -54,6 +54,8 @@ class Trainer:
         self.mean_count = 0
         self.local_step = 0
         self.bound = 1.0
+        self.density_scale = 1
+        self.density_thresh = 0.01
 
         # self.scheduler
         target_lr_ratio = 0.0001
@@ -80,6 +82,8 @@ class Trainer:
         else:
             self.compiled_render = VolumeRenderer.render
             self.compiled_render_no_grad = VolumeRenderer.render_no_grad
+
+        self.load_checkpoint(self)
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, fx, fy, cx, cy, S=64):
@@ -137,6 +141,99 @@ class Trainer:
 
         print(f'[mark untrained grid] {(count == 0).sum()} from {self.grid_size ** 3 * self.cascade}')
 
+    @torch.no_grad()
+    def update_extra_state(self, decay=0.95, S=128):
+        # call before each epoch to update extra states.
+
+        ### update density grid
+
+        tmp_grid = - torch.ones_like(self.density_grid)
+
+        # full update.
+        if self.iter_density < 16:
+            # if True:
+            X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+            Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+            Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+
+            for xs in X:
+                for ys in Y:
+                    for zs in Z:
+
+                        # construct points
+                        xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                        coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)  # [N, 3], in [0, 128)
+                        indices = raymarching.morton3D(coords).long()  # [N]
+                        xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+
+                        # cascading
+                        for cas in range(self.cascade):
+                            bound = min(2 ** cas, self.bound)
+                            half_grid_size = bound / self.grid_size
+                            # scale to current cascade's resolution
+                            cas_xyzs = xyzs * (bound - half_grid_size)
+                            # add noise in [-hgs, hgs]
+                            cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+                            # query density
+                            sigmas = self.model.sigma(cas_xyzs)['sigma'].reshape(-1).detach()
+                            sigmas *= self.density_scale
+                            # assign
+                            tmp_grid[cas, indices] = sigmas
+
+        # partial update (half the computation)
+        # TODO: why no need of maxpool ?
+        else:
+            N = self.grid_size ** 3 // 4  # H * H * H / 4
+            for cas in range(self.cascade):
+                # random sample some positions
+                coords = torch.randint(0, self.grid_size, (N, 3), device=self.density_bitfield.device)  # [N, 3], in [0, 128)
+                indices = raymarching.morton3D(coords).long()  # [N]
+                # random sample occupied positions
+                occ_indices = torch.nonzero(self.density_grid[cas] > 0).squeeze(-1)  # [Nz]
+                rand_mask = torch.randint(0, occ_indices.shape[0], [N], dtype=torch.long, device=self.density_bitfield.device)
+                occ_indices = occ_indices[rand_mask]  # [Nz] --> [N], allow for duplication
+                occ_coords = raymarching.morton3D_invert(occ_indices)  # [N, 3]
+                # concat
+                indices = torch.cat([indices, occ_indices], dim=0)
+                coords = torch.cat([coords, occ_coords], dim=0)
+                # same below
+                xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+                bound = min(2 ** cas, self.bound)
+                half_grid_size = bound / self.grid_size
+                # scale to current cascade's resolution
+                cas_xyzs = xyzs * (bound - half_grid_size)
+                # add noise in [-hgs, hgs]
+                cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+                # query density
+                sigmas = self.model.sigma(cas_xyzs)['sigma'].reshape(-1).detach()
+                sigmas *= self.density_scale
+                # assign
+                tmp_grid[cas, indices] = sigmas
+
+        ## max-pool on tmp_grid for less aggressive culling [No significant improvement...]
+        # invalid_mask = tmp_grid < 0
+        # tmp_grid = F.max_pool3d(tmp_grid.view(self.cascade, 1, self.grid_size, self.grid_size, self.grid_size), kernel_size=3, stride=1, padding=1).view(self.cascade, -1)
+        # tmp_grid[invalid_mask] = -1
+
+        # ema update
+        valid_mask = (self.density_grid >= 0) & (tmp_grid >= 0)
+        self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
+        self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item()  # -1 regions are viewed as 0 density.
+        # self.mean_density = torch.mean(self.density_grid[self.density_grid > 0]).item() # do not count -1 regions
+        self.iter_density += 1
+
+        # convert to bitfield
+        density_thresh = min(self.mean_density, self.density_thresh)
+        self.density_bitfield = raymarching.packbits(self.density_grid, density_thresh, self.density_bitfield)
+
+        ### update step counter
+        total_step = min(16, self.local_step)
+        if total_step > 0:
+            self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
+        self.local_step = 0
+
+        # print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
+
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
@@ -178,7 +275,8 @@ class Trainer:
 
                     # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
 
-        self.test(valid_dataset)
+        self.save_checkpoint()
+        # self.test(valid_dataset)
 
     def test(self, test_dataset: PINeuFlowDataset):
         import imageio.v3 as imageio
@@ -199,7 +297,6 @@ class Trainer:
                 for _ in range(train_loader.batch_size):
                     self.states.iteration += 1
 
-                    self.optimizer.zero_grad()
                     gt_pixels = data['pixels'][_].reshape(test_dataset.heights, test_dataset.widths, 3)  # [H, W, 3]
                     rgb_map_final = []
                     total_ray_size = data['rays_o'][_].shape[0]
@@ -220,3 +317,17 @@ class Trainer:
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
+
+    def save_checkpoint(self):
+        state = {
+            'model': self.model.state_dict(),
+        }
+
+        torch.save(state, os.path.join(self.states.workspace, 'checkpoint.pth'))
+
+    def load_checkpoint(self, checkpoint):
+        if not os.path.exists(checkpoint):
+            pass
+        checkpoint_dict = torch.load(checkpoint, map_location=self.states.device)
+        missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
+        print(f'[load_checkpoint] Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}')
