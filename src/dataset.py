@@ -144,9 +144,23 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             heights = heights // downscale
 
             voxel_transform = torch.tensor(scene_info['voxel_transform'])
-            new_poses, new_voxel_transform = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy(), voxel_transform.detach().cpu().numpy())
-            poses = torch.tensor(new_poses)
-            voxel_transform = torch.tensor(new_voxel_transform)
+            if dataset_type == 'train':
+                new_poses, new_voxel_transform, c_opt, radius = PINeuFlowDataset._adjust_poses(poses.detach().cpu().numpy(), voxel_transform.detach().cpu().numpy())
+                poses = torch.tensor(new_poses)
+                voxel_transform = torch.tensor(new_voxel_transform)
+            else:
+                poses_train = []
+                for path in [os.path.normpath(os.path.join(dataset_path, camera_path)) for camera_path in scene_info['training_camera_calibrations']]:
+                    try:
+                        camera_info = np.load(path)
+                        poses_train.append(torch.tensor(camera_info["cam_transform"]))
+                    except Exception as e:
+                        raise FileNotFoundError(f'Could not load camera {path}: {e}')
+                poses_train = torch.stack(poses_train)
+                _1, new_voxel_transform, c_opt, radius = PINeuFlowDataset._adjust_poses(poses_train.detach().cpu().numpy(), voxel_transform.detach().cpu().numpy())
+                for pose in poses:
+                    pose[:3, 3] -= c_opt
+                voxel_transform = torch.tensor(new_voxel_transform)
 
             voxel_scale = torch.tensor(scene_info['voxel_scale'])
             s_min = torch.tensor(scene_info['s_min'])
@@ -178,6 +192,8 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
             extra_params.s_w2s = s_w2s
             extra_params.s2w = s2w
             extra_params.s_scale = s_scale
+            extra_params.c_opt = c_opt
+            extra_params.radius = radius
             return poses, focals, widths, heights, extra_params
 
     @staticmethod
@@ -205,7 +221,7 @@ class PINeuFlowDataset(torch.utils.data.Dataset):
         for pose in poses:
             pose[:3, 3] -= c_opt
         others[:3, 3] -= c_opt
-        return poses, others
+        return poses, others, c_opt, radius
 
     @staticmethod
     def find_min_enclosing_sphere_on_rays(origins, directions):
