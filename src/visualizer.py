@@ -121,7 +121,7 @@ def visualize_density_grid(density_grid, grid_size, poses, size=0.1):
     indices = raymarching.morton3D(coords).long()  # [H³]
 
     values = density_grid[indices]  # [H³]
-    mask = values != -1  # -1 表示未激活的体素
+    mask = values > 0.01  # -1 表示未激活的体素
     active_coords = coords[mask].cpu().numpy()  # [N, 3]
 
     normalized = (active_coords / (grid_size - 1)) * 2 - 1  # [N, 3] ∈ [-1, 1]
