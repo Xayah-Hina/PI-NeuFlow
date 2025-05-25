@@ -13,7 +13,7 @@ class DatasetConfig:
     downscale: int = dataclasses.field(default=2, metadata={'help': 'downscale factor for images'})
 
     use_preload: bool = dataclasses.field(default=True, metadata={'help': 'preload all data into GPU, accelerate training but use more GPU memory'})
-    use_fp16: bool = dataclasses.field(default=False, metadata={'help': 'use amp mixed precision training'})
+    use_fp16: bool = dataclasses.field(default=True, metadata={'help': 'use amp mixed precision training'})
 
     def __post_init__(self):
         if not os.path.exists(os.path.join(self.data_dir, self.dataset_dir)):
@@ -25,4 +25,5 @@ class TrainConfig:
     # optional options
     model: typing.Literal["PI-NeuFlow"] = dataclasses.field(default="PI-NeuFlow", metadata={'help': 'model name'})
     mode: typing.Literal["train", "test"] = dataclasses.field(default="train", metadata={"help": "mode of training"})
+    compile: bool = dataclasses.field(default=False, metadata={'help': 'use torch.compile to compile the model for faster training'})
     device: str = dataclasses.field(default='cuda:0', metadata={'help': 'device to use, usually setting to None is OK. (auto choose device)'})

@@ -327,7 +327,6 @@ class FrustumsSampler:
         print(f"cound: max - {count.max()}, min - {count.min()} 0. {(count == 0).sum()}, 1. {(count == 1).sum()}, 2. {(count == 2).sum()}, 3. {(count == 3).sum()}, 4. {(count == 4).sum()}, 5. {(count == 5).sum()}, 6. {(count == 6).sum()}, 7. {(count == 7).sum()}, 8. {(count == 8).sum()}")
         print(f'[mark untrained grid] {(count == 0).sum()} from {self.grid_size ** 3 * self.cascade}')
 
-
     @torch.compile
     @torch.no_grad()
     def update_extra_state(self, network, decay=0.95, S=128):
@@ -434,9 +433,34 @@ class FrustumsSampler:
 
         print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128 ** 3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
 
-    def compute_nears_fars(self, rays_o, rays_d):
+    def render_cuda(self, network, rays_o, rays_d, time, perturb, force_all_rays, dt_gamma, max_steps):
+        prefix = rays_o.shape[:-1]
+        rays_o = rays_o.contiguous().view(-1, 3)
+        rays_d = rays_d.contiguous().view(-1, 3)
+        N = rays_o.shape[0]  # N = B * N, in fact
+        device = rays_o.device
+
         nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train, self.min_near)
-        return nears, fars
+        bg_color = 1
+
+        counter = self.step_counter[self.local_step % 16]
+        counter.zero_()  # set to 0
+        self.local_step += 1
+
+        t = torch.floor(time * self.time_size).clamp(min=0, max=self.time_size - 1).long()
+        xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_bitfield[t], self.cascade, self.grid_size, nears, fars, counter, self.mean_count, perturb, -1, force_all_rays, dt_gamma, max_steps)
+
+        xyzts = torch.cat([xyzs, time[None].expand(N, 1)], dim=-1)
+        sigmas, rgbs = network(xyzts, dirs)
+        sigmas = self.density_scale * sigmas
+
+        weights_sum, depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays)
+        image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
+        depth = torch.clamp(depth - nears, min=0) / (fars - nears)
+        image = image.view(*prefix, 3)
+        depth = depth.view(*prefix)
+
+        return image, depth
 
     def collate(self, batch: list):
         images = torch.stack([single['image'] for single in batch])  # [B, H, W, C]
