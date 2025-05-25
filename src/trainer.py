@@ -72,11 +72,6 @@ class Trainer:
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
-        # preprocessing
-        # poses = train_dataset.poses
-        # self.mark_untrained_grid(poses, train_dataset.focals[0].item(), train_dataset.focals[0].item(), train_dataset.widths / 2, train_dataset.heights / 2)
-        # preprocessing
-
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024, randomize=True)
         train_loader = sampler.dataloader(batch_size=1)
 
@@ -87,6 +82,7 @@ class Trainer:
             cx=train_dataset.widths / 2,
             cy=train_dataset.heights / 2,
         )
+        sampler.update_extra_state(network=self.model)
 
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1

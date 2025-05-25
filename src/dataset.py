@@ -252,7 +252,7 @@ class FrustumsSampler:
 
         # occupancy grid
         self.cascade = 1
-        self.grid_size = 128 # don't change this, it is hardcoded in the CUDA kernel
+        self.grid_size = 128  # don't change this, it is hardcoded in the CUDA kernel
         self.time_size = dataset.states.T
         self.density_grid = torch.zeros(self.time_size, self.cascade, self.grid_size ** 3, dtype=dtype, device=device)  # [T, CAS, H * H * H]
         self.density_bitfield = torch.zeros(self.time_size, self.cascade * self.grid_size ** 3 // 8, dtype=torch.uint8, device=device)  # [T, CAS * H * H * H // 8]
@@ -328,6 +328,111 @@ class FrustumsSampler:
 
         # from .visualizer import visualize_density_grid
         # visualize_density_grid(self.density_grid[0, 0], grid_size=self.grid_size, poses=self.dataset.poses.detach().cpu())
+
+    @torch.no_grad()
+    def update_extra_state(self, network, decay=0.95, S=128):
+        # call before each epoch to update extra states.
+
+        ### update density grid
+
+        tmp_grid = - torch.ones_like(self.density_grid)
+
+        # full update.
+        if self.iter_density < 16:
+            # if True:
+            X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+            Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+            Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_bitfield.device).split(S)
+
+            # for t, time in enumerate(self.dataset.times):
+            for t, time in enumerate(tqdm.tqdm(self.dataset.times, desc="update extra state times...")):
+                time: torch.Tensor
+                for xs in X:
+                    for ys in Y:
+                        for zs in Z:
+
+                            # construct points
+                            xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                            coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)  # [N, 3], in [0, 128)
+                            indices = raymarching.morton3D(coords).long()  # [N]
+                            xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+
+                            # cascading
+                            for cas in range(self.cascade):
+                                bound = min(2 ** cas, self.bound)
+                                half_grid_size = bound / self.grid_size
+                                half_time_size = 0.5 / self.time_size
+                                # scale to current cascade's resolution
+                                cas_xyzs = xyzs * (bound - half_grid_size)
+                                # add noise in coord [-hgs, hgs]
+                                cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+                                # add noise in time [-hts, hts]
+                                time_perturb = time + (torch.rand_like(time) * 2 - 1) * half_time_size
+                                # query density
+                                cas_xyzts = torch.cat([cas_xyzs, time_perturb[None].expand(cas_xyzs.shape[0], 1)], dim=-1)  # [N, 4]
+                                sigmas = network.sigma(cas_xyzts)['sigma'].reshape(-1).detach()
+                                sigmas *= self.density_scale
+                                # assign
+                                tmp_grid[t, cas, indices] = sigmas
+
+        # partial update (half the computation)
+        # just update 100 times should be enough... too time consuming.
+        elif self.iter_density < 100:
+            N = self.grid_size ** 3 // 4  # T * C * H * H * H / 4
+            for t, time in enumerate(self.dataset.times):
+                for cas in range(self.cascade):
+                    # random sample some positions
+                    coords = torch.randint(0, self.grid_size, (N, 3), device=self.density_bitfield.device)  # [N, 3], in [0, 128)
+                    indices = raymarching.morton3D(coords).long()  # [N]
+                    # random sample occupied positions
+                    occ_indices = torch.nonzero(self.density_grid[t, cas] > 0).squeeze(-1)  # [Nz]
+                    rand_mask = torch.randint(0, occ_indices.shape[0], [N], dtype=torch.long, device=self.density_bitfield.device)
+                    occ_indices = occ_indices[rand_mask]  # [Nz] --> [N], allow for duplication
+                    occ_coords = raymarching.morton3D_invert(occ_indices)  # [N, 3]
+                    # concat
+                    indices = torch.cat([indices, occ_indices], dim=0)
+                    coords = torch.cat([coords, occ_coords], dim=0)
+                    # same below
+                    xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+                    bound = min(2 ** cas, self.bound)
+                    half_grid_size = bound / self.grid_size
+                    half_time_size = 0.5 / self.time_size
+                    # scale to current cascade's resolution
+                    cas_xyzs = xyzs * (bound - half_grid_size)
+                    # add noise in [-hgs, hgs]
+                    cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+                    # add noise in time [-hts, hts]
+                    time_perturb = time + (torch.rand_like(time) * 2 - 1) * half_time_size
+                    cas_xyzts = torch.cat([cas_xyzs, time_perturb[None].expand(cas_xyzs.shape[0], 1)], dim=-1)  # [N, 4]
+                    # query density
+                    sigmas = network.sigma(cas_xyzts)['sigma'].reshape(-1).detach()
+                    sigmas *= self.density_scale
+                    # assign
+                    tmp_grid[t, cas, indices] = sigmas
+
+        ## max-pool on tmp_grid for less aggressive culling [No significant improvement...]
+        # invalid_mask = tmp_grid < 0
+        # tmp_grid = F.max_pool3d(tmp_grid.view(self.cascade, 1, self.grid_size, self.grid_size, self.grid_size), kernel_size=3, stride=1, padding=1).view(self.cascade, -1)
+        # tmp_grid[invalid_mask] = -1
+
+        # ema update
+        valid_mask = (self.density_grid >= 0) & (tmp_grid >= 0)
+        self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
+        self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item()  # -1 non-training regions are viewed as 0 density.
+        self.iter_density += 1
+
+        # convert to bitfield
+        density_thresh = min(self.mean_density, self.density_thresh)
+        for t in range(self.time_size):
+            raymarching.packbits(self.density_grid[t], density_thresh, self.density_bitfield[t])
+
+        ### update step counter
+        total_step = min(16, self.local_step)
+        if total_step > 0:
+            self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
+        self.local_step = 0
+
+        # print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
 
     def compute_nears_fars(self, rays_o, rays_d):
         nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train, self.min_near)
