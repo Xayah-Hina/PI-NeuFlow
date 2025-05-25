@@ -292,7 +292,7 @@ class FrustumsSampler:
                     xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
                     coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)  # [N, 3], in [0, 128)
                     indices = raymarching.morton3D(coords).long()  # [N]
-                    world_xyzs = (2 * coords.float() / (self.grid_size - 1) - 1).unsqueeze(0)  # [1, N, 3] in [-1, 1]
+                    world_xyzs = (2 * coords.to(poses.dtype) / (self.grid_size - 1) - 1).unsqueeze(0)  # [1, N, 3] in [-1, 1]
 
                     # cascading
                     for cas in range(self.cascade):
@@ -355,7 +355,7 @@ class FrustumsSampler:
                             xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
                             coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1)  # [N, 3], in [0, 128)
                             indices = raymarching.morton3D(coords).long()  # [N]
-                            xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+                            xyzs = 2 * coords.to(time.dtype) / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
 
                             # cascading
                             for cas in range(self.cascade):
@@ -393,7 +393,7 @@ class FrustumsSampler:
                     indices = torch.cat([indices, occ_indices], dim=0)
                     coords = torch.cat([coords, occ_coords], dim=0)
                     # same below
-                    xyzs = 2 * coords.float() / (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
+                    xyzs = 2 * coords.to(time.dtype)/ (self.grid_size - 1) - 1  # [N, 3] in [-1, 1]
                     bound = min(2 ** cas, self.bound)
                     half_grid_size = bound / self.grid_size
                     half_time_size = 0.5 / self.time_size

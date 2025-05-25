@@ -75,14 +75,15 @@ class Trainer:
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024, randomize=True)
         train_loader = sampler.dataloader(batch_size=1)
 
-        sampler.mark_untrained_grid(
-            poses=train_dataset.poses,
-            fx=train_dataset.focals[0].item(),
-            fy=train_dataset.focals[0].item(),
-            cx=train_dataset.widths / 2,
-            cy=train_dataset.heights / 2,
-        )
-        sampler.update_extra_state(network=self.model)
+        with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
+            sampler.mark_untrained_grid(
+                poses=train_dataset.poses,
+                fx=train_dataset.focals[0].item(),
+                fy=train_dataset.focals[0].item(),
+                cx=train_dataset.widths / 2,
+                cy=train_dataset.heights / 2,
+            )
+            sampler.update_extra_state(network=self.model)
 
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
