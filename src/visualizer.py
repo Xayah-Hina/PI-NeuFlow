@@ -2,7 +2,7 @@ import numpy as np
 import trimesh
 
 
-def visualize_poses(poses, size=0.1, func=None):
+def visualize_poses_opengl_style(poses, size=0.1, func=None):
     # poses: [B, 4, 4]
 
     axes = trimesh.creation.axis(axis_length=4)
@@ -78,3 +78,55 @@ def visualize_rays(rays_o, rays_d, size=0.1):
     # Combine and visualize
     scene = trimesh.Scene([axes, box, ray_paths])
     scene.show()
+
+
+def visualize_density_grid(density_grid, grid_size, poses, size=0.1):
+    axes = trimesh.creation.axis(axis_length=4)
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
+
+    for pose in poses:
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] - size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] - size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] - size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] - size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    import torch
+    from .cuda_extensions import raymarching
+
+    device = density_grid.device
+
+    # [H, H, H] 中所有坐标
+    xs, ys, zs = torch.meshgrid(
+        torch.arange(grid_size, device=device),
+        torch.arange(grid_size, device=device),
+        torch.arange(grid_size, device=device),
+        indexing='ij'
+    )
+    coords = torch.stack([xs, ys, zs], dim=-1).reshape(-1, 3)  # [H³, 3]
+
+    # 得到 morton 编码
+    indices = raymarching.morton3D(coords).long()  # [H³]
+
+    values = density_grid[indices]  # [H³]
+    mask = values != -1  # -1 表示未激活的体素
+    active_coords = coords[mask].cpu().numpy()  # [N, 3]
+
+    normalized = (active_coords / (grid_size - 1)) * 2 - 1  # [N, 3] ∈ [-1, 1]
+
+    cloud = trimesh.points.PointCloud(normalized)
+    objects.append(cloud)
+    trimesh.Scene(objects).show()
+
+
