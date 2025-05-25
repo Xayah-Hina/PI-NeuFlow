@@ -86,7 +86,7 @@ class Trainer:
             sampler.update_extra_state(network=self.model)
             from .visualizer import visualize_density_grid
             # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
-            visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
+            # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
 
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
@@ -103,7 +103,7 @@ class Trainer:
                         rays_d = data['rays_d'][_]
                         time = data['times'][_]
 
-                        rgb_map = sampler.render_cuda(
+                        rgb_map, depth_map = sampler.render_cuda(
                             network=self.model,
                             rays_o=rays_o,  # [N, 3]
                             rays_d=rays_d,  # [N, 3]

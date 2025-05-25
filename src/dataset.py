@@ -450,7 +450,7 @@ class FrustumsSampler:
         t = torch.floor(time * self.time_size).clamp(min=0, max=self.time_size - 1).long()
         xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_bitfield[t], self.cascade, self.grid_size, nears, fars, counter, self.mean_count, perturb, -1, force_all_rays, dt_gamma, max_steps)
 
-        xyzts = torch.cat([xyzs, time[None].expand(N, 1)], dim=-1)
+        xyzts = torch.cat([xyzs, time[None].expand(xyzs.shape[0], 1)], dim=-1)
         sigmas, rgbs = network(xyzts, dirs)
         sigmas = self.density_scale * sigmas
 
