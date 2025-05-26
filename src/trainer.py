@@ -19,6 +19,7 @@ class Trainer:
                  learning_rate_network: float,
                  use_fp16: bool,
                  use_compile: bool,
+                 use_ffmlp: bool,
                  device: torch.device,
                  ):
         # self.model
@@ -26,6 +27,7 @@ class Trainer:
             self.model = NetworkPINeuFlow(
                 encoding_xyzt='hyfluid',
                 encoding_dir='sphere_harmonics',
+                use_ffmlp=use_ffmlp,
                 num_layers_sigma=3,
                 num_layers_color=3,
                 hidden_dim_sigma=64,
@@ -84,7 +86,7 @@ class Trainer:
                 cy=train_dataset.heights / 2,
             )
             sampler.update_extra_state(network=self.model)
-            from .visualizer import visualize_density_grid
+            # from .visualizer import visualize_density_grid
             # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
             # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
 
