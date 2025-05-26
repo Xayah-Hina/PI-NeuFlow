@@ -15,3 +15,9 @@ python -m pip install .
 cd ../../..
 python -m pip install -U "triton-windows<3.3"
 ```
+
+```shell
+# open X64 Native Tools Command Prompt for VS 2022
+set TCNN_CUDA_ARCHITECTURES=86
+python -m pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
+```

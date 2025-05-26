@@ -19,6 +19,7 @@ class Trainer:
                  learning_rate_network: float,
                  use_fp16: bool,
                  use_compile: bool,
+                 use_tcnn: bool,
                  device: torch.device,
                  ):
         # self.model
@@ -26,6 +27,7 @@ class Trainer:
             self.model = NetworkPINeuFlow(
                 encoding_xyzt='hyfluid',
                 encoding_dir='sphere_harmonics',
+                use_tcnn=use_tcnn,
                 num_layers_sigma=3,
                 num_layers_color=3,
                 hidden_dim_sigma=64,
