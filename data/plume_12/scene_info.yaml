@@ -1,0 +1,29 @@
+training_videos:
+  - data/plume_12/train01.mp4
+  - data/plume_12/train02.mp4
+  - data/plume_12/train03.mp4
+  - data/plume_12/train04.mp4
+  - data/plume_12/train05.mp4
+
+validation_videos:
+  - data/plume_12/train02.mp4
+
+training_camera_calibrations:
+  - data/plume_12/export_cam1.npz
+  - data/plume_12/export_cam2.npz
+  - data/plume_12/export_cam3.npz
+  - data/plume_12/export_cam4.npz
+  - data/plume_12/export_cam5.npz
+
+validation_camera_calibrations:
+  - data/plume_12/export_cam2.npz
+
+voxel_transform:
+  - [ 1.0, 0.0, 0.0, 0.0 ]
+  - [ 0.0, 1.0, 0.0, 0.0 ]
+  - [ 0.0, 0.0, 1.0, 0.0 ]
+  - [ 0.0, 0.0, 0.0, 1.0 ]
+
+voxel_scale: [ 1.0, 2.0, 1.0 ]
+s_min: [ 0.1, 0.0, 0.0 ]
+s_max: [ 0.9, 1.0, 0.9 ]

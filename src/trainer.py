@@ -86,7 +86,7 @@ class Trainer:
                 cy=train_dataset.heights / 2,
             )
             sampler.update_extra_state(network=self.model)
-            from .visualizer import visualize_density_grid
+            # from .visualizer import visualize_density_grid
             # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
             # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
 
