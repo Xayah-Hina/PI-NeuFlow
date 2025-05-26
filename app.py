@@ -65,7 +65,8 @@ if __name__ == "__main__":
             'train_cfg': cfg,
             'model': trainer.model.state_dict(),
         }
-        torch.save(state, os.path.join(trainer.states.workspace, f'checkpoint_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'))
+        os.makedirs(os.path.join(trainer.states.workspace, "images"), exist_ok=True)
+        torch.save(state, os.path.join(trainer.states.workspace, "images", f'checkpoint_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'))
     elif cfg.train.mode == 'test':
         trainer.test(
             test_dataset=PINeuFlowDataset(
