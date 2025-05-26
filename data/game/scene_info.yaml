@@ -1,0 +1,33 @@
+training_videos:
+  - train00.mp4
+  - train01.mp4
+  - train02.mp4
+  - train03.mp4
+  - train04.mp4
+  - train05.mp4
+  - train06.mp4
+
+validation_videos:
+  - train02.mp4
+
+training_camera_calibrations:
+  - cam_train00.npz
+  - cam_train01.npz
+  - cam_train02.npz
+  - cam_train03.npz
+  - cam_train04.npz
+  - cam_train05.npz
+  - cam_train06.npz
+
+validation_camera_calibrations:
+  - cam_train02.npz
+
+voxel_transform:
+  - [ 0.13500000536441803, -5.901037436473189e-09, -5.901037436473189e-09, -1.6158000230789185 ]
+  - [ -5.901037436473189e-09, 2.579425759137178e-16, -0.13500000536441803, 1.7897000312805176 ]
+  - [ 5.901037436473189e-09, 0.13500000536441803, 0.0, 0.027354000136256218 ]
+  - [ 0.0,0.0,0.0,1.0 ]
+
+voxel_scale: [ 24.0128, 20.2608, 19.1352 ]
+s_min: [ 0.0,-0.1,-0.1 ]
+s_max: [ 1.2,0.9,1.35 ]
