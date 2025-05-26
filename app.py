@@ -14,31 +14,18 @@ class AppConfig:
     dataset: DatasetConfig = dataclasses.field(default_factory=DatasetConfig)
 
 
-def save_checkpoint(self, train_cfg):
-    state = {
-        'train_cfg': train_cfg,
-        'model': self.model.state_dict(),
-    }
-    torch.save(state, os.path.join(self.states.workspace, 'checkpoint.pth'))
-
-
-def load_checkpoint(self, checkpoint):
-    if not os.path.exists(checkpoint):
-        raise FileNotFoundError(f"Checkpoint {checkpoint} not found")
-    checkpoint_dict = torch.load(checkpoint, map_location=self.states.device)
-    missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
-    print(f'[load_checkpoint] Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}')
-
-
 if __name__ == "__main__":
     cfg = tyro.cli(AppConfig)
     device = torch.device(cfg.train.device)
 
     # load checkpoint
     model_state_dict = None
-    if os.path.exists(os.path.join(cfg.train.workspace, 'checkpoints')):
-        checkpoint_dict = torch.load(cfg.train.workspace, map_location=device)
-        cfg = checkpoint_dict['train_cfg']
+    ckpt_path = os.path.join(cfg.train.workspace, cfg.train.ckpt)
+    if os.path.exists(ckpt_path):
+        checkpoint_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
+        cfg_ckpt = checkpoint_dict['train_cfg']
+        cfg_ckpt.train.mode = cfg.train.mode
+        cfg = cfg_ckpt
         model_state_dict = checkpoint_dict['model']
 
     trainer = Trainer(

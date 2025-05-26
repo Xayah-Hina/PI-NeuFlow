@@ -5,11 +5,8 @@ import typing
 
 @dataclasses.dataclass
 class DatasetConfig:
-    # required options
-    dataset_dir: str = dataclasses.field(metadata={'help': 'base directory of dataset'})
-
-    # optional options
     data_dir: str = dataclasses.field(default=os.path.abspath(os.path.join(os.getcwd(), 'data')), metadata={'help': 'data directory'})
+    dataset_dir: str = dataclasses.field(default='', metadata={'help': 'base directory of dataset'})
     downscale: int = dataclasses.field(default=2, metadata={'help': 'downscale factor for images'})
 
     use_preload: bool = dataclasses.field(default=True, metadata={'help': 'preload all data into GPU, accelerate training but use more GPU memory'})
