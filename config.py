@@ -20,7 +20,7 @@ class DatasetConfig:
 @dataclasses.dataclass
 class TrainConfig:
     # checkpoint options
-    ckpt: str = dataclasses.field(default='checkpoint.pth', metadata={'help': 'checkpoint path'})
+    select_ckpt: bool = dataclasses.field(default=False, metadata={'help': 'select a checkpoint to continue training'})
 
     # optional options
     workspace: str = dataclasses.field(default='workspace', metadata={'help': 'workspace directory'})

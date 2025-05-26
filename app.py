@@ -8,6 +8,22 @@ import dataclasses
 import datetime
 
 
+def open_file_dialog():
+    from tkinter import filedialog, Tk
+    while True:
+        root = Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        file_path = filedialog.askopenfilename(title="Select a checkpoint file", initialdir="history", filetypes=[("Checkpoint files", "*.tar")])
+        root.destroy()
+
+        if file_path and os.path.isfile(file_path):
+            print("Successfully loaded checkpoint:", file_path)
+            return file_path
+        else:
+            print("invalid file path, please select a valid checkpoint file.")
+
+
 @dataclasses.dataclass
 class AppConfig:
     train: TrainConfig = dataclasses.field(default_factory=TrainConfig)
@@ -18,15 +34,17 @@ if __name__ == "__main__":
     cfg = tyro.cli(AppConfig)
     device = torch.device(cfg.train.device)
 
-    # load checkpoint
     model_state_dict = None
-    ckpt_path = os.path.join(cfg.train.workspace, cfg.train.ckpt)
-    if os.path.exists(ckpt_path):
-        checkpoint_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
-        cfg_ckpt = checkpoint_dict['train_cfg']
-        cfg_ckpt.train.mode = cfg.train.mode
-        cfg = cfg_ckpt
-        model_state_dict = checkpoint_dict['model']
+    # load checkpoint
+    if cfg.train.select_ckpt:
+        checkpoint = open_file_dialog()
+        ckpt_path = os.path.join(cfg.train.workspace, checkpoint)
+        if os.path.exists(ckpt_path):
+            checkpoint_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
+            cfg_ckpt = checkpoint_dict['train_cfg']
+            cfg_ckpt.train.mode = cfg.train.mode
+            cfg = cfg_ckpt
+            model_state_dict = checkpoint_dict['model']
 
     trainer = Trainer(
         name="PI-NeuFlow",
