@@ -91,10 +91,10 @@ class Trainer:
         # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
         # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
 
-        for epoch in range(self.states.epoch, max_epochs):
+        for epoch in tqdm.trange(self.states.epoch, max_epochs):
             self.states.epoch += 1
 
-            for i, data in enumerate(tqdm.tqdm(train_loader)):
+            for i, data in enumerate(train_loader):
                 data: dict
 
                 for _ in range(train_loader.batch_size):
