@@ -15,6 +15,7 @@ class Trainer:
                  name: str,
                  workspace: str,
                  model: typing.Literal['hyfluid', 'PI-NeuFlow'],
+                 model_state_dict,
                  learning_rate_encoder: float,
                  learning_rate_network: float,
                  use_fp16: bool,
@@ -34,6 +35,7 @@ class Trainer:
                 hidden_dim_color=64,
                 geo_feat_dim=32,
             ).to(device)
+            self.model.load_state_dict(model_state_dict, strict=False)
         else:
             raise NotImplementedError(f"Model {model} is not implemented.")
 
@@ -135,7 +137,6 @@ class Trainer:
                     # from .visualizer import visualize_rays
                     # visualize_rays(train_rays_o.cpu().numpy(), train_rays_d.cpu().numpy(), size=0.1)
 
-        self.save_checkpoint()
         # self.test(valid_dataset)
 
     def test(self, test_dataset: PINeuFlowDataset):
@@ -179,17 +180,3 @@ class Trainer:
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'acc_{:03d}_{:03d}.png'.format(i, _)), acc8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
-
-    def save_checkpoint(self, train_cfg):
-        state = {
-            'train_cfg': train_cfg,
-            'model': self.model.state_dict(),
-        }
-        torch.save(state, os.path.join(self.states.workspace, 'checkpoint.pth'))
-
-    def load_checkpoint(self, checkpoint):
-        if not os.path.exists(checkpoint):
-            raise FileNotFoundError(f"Checkpoint {checkpoint} not found")
-        checkpoint_dict = torch.load(checkpoint, map_location=self.states.device)
-        missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
-        print(f'[load_checkpoint] Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}')
