@@ -141,6 +141,7 @@ class Trainer:
         # self.test(valid_dataset)
 
     def test(self, test_dataset: PINeuFlowDataset):
+        import imageio.v2 as imageiov2
         import imageio.v3 as imageio
         import numpy as np
         import gc
@@ -186,5 +187,5 @@ class Trainer:
                     frame = np.concatenate([gt8, rgb8, depth8])
                     os.makedirs(os.path.join(self.states.workspace, 'images'), exist_ok=True)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'output_{:03d}_{:03d}.png'.format(i, _)), frame)
-                    frames.append(frame, axis=1)
-            imageio.mimsave('results/output.mp4', frames, fps=24)
+                    frames.append(frame)
+            imageiov2.mimsave('results/output.mp4', frames, fps=24)
