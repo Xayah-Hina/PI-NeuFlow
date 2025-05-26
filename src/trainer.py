@@ -105,25 +105,25 @@ class Trainer:
                         rays_d = data['rays_d'][_]
                         time = data['times'][_]
 
-                        rgb_map, depth_map = sampler.render_cuda(
-                            network=self.model,
-                            rays_o=rays_o,  # [N, 3]
-                            rays_d=rays_d,  # [N, 3]
-                            time=time,  # [1]
-                            perturb=True,
-                            force_all_rays=True,
-                            dt_gamma=0.0,
-                            max_steps=1024,
-                        )
-
-                        # rgb_map = self.compiled_render(
+                        # rgb_map, depth_map = sampler.render_cuda(
                         #     network=self.model,
-                        #     rays_o=rays_o,  # [N, C]
-                        #     rays_d=rays_d,  # [1]
-                        #     time=time,  # [N, 3]
-                        #     extra_params=train_dataset.extra_params,
-                        #     randomize=True,
+                        #     rays_o=rays_o,  # [N, 3]
+                        #     rays_d=rays_d,  # [N, 3]
+                        #     time=time,  # [1]
+                        #     perturb=True,
+                        #     force_all_rays=True,
+                        #     dt_gamma=0.0,
+                        #     max_steps=1024,
                         # )
+
+                        rgb_map = self.compiled_render(
+                            network=self.model,
+                            rays_o=rays_o,  # [N, C]
+                            rays_d=rays_d,  # [1]
+                            time=time,  # [N, 3]
+                            extra_params=train_dataset.extra_params,
+                            randomize=True,
+                        )
                         gt_pixels = data['pixels'][_]  # [N, 3]
                         img_loss = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
                     self.scaler.scale(img_loss).backward()
