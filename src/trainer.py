@@ -117,7 +117,7 @@ class Trainer:
                         #     max_steps=1024,
                         # )
 
-                        rgb_map, acc_map = self.compiled_render(
+                        rgb_map, depth_map = self.compiled_render(
                             network=self.model,
                             rays_o=rays_o,  # [N, C]
                             rays_d=rays_d,  # [1]
@@ -161,11 +161,11 @@ class Trainer:
 
                     gt_pixels = data['pixels'][_].reshape(test_dataset.heights, test_dataset.widths, 3)  # [H, W, 3]
                     rgb_map_final = []
-                    acc_map_final = []
+                    depth_map_final = []
                     total_ray_size = data['rays_o'][_].shape[0]
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
-                        rgb_map, acc_map = self.compiled_render_no_grad(
+                        rgb_map, depth_map = self.compiled_render_no_grad(
                             network=self.model,
                             rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                             rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
@@ -174,13 +174,13 @@ class Trainer:
                             randomize=False,
                         )  # [N, 3]
                         rgb_map_final.append(rgb_map.detach().cpu())
-                        acc_map_final.append(acc_map.detach().cpu())
+                        depth_map_final.append(depth_map.detach().cpu())
                     rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
-                    acc_map_final = torch.cat(acc_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 1)
+                    depth_map_final = torch.cat(depth_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 1)
 
                     rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
-                    acc8 = (255 * np.clip(acc_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
+                    depth8 = (255 * np.clip(depth_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
-                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'acc_{:03d}_{:03d}.png'.format(i, _)), acc8)
+                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'depth_{:03d}_{:03d}.png'.format(i, _)), depth8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)

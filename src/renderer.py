@@ -127,8 +127,8 @@ class VolumeRenderer:
         acc_map = torch.sum(weights, dim=-1)  # 每条光线的总权重（可能 < 1）
         rgb_map = torch.sum(weights[..., None] * rgbs, dim=-2) + (1. - acc_map)[..., None] * bg_color
 
-        # rgb_map = torch.sum(weights[..., None] * torch.sigmoid(rgbs), dim=-2)
-        return rgb_map, acc_map
+        depth_map = torch.sum(weights * dists_final, dim=-1)  # 每条光线的深度
+        return rgb_map, depth_map
 
     @staticmethod
     @torch.no_grad()
@@ -144,5 +144,5 @@ class VolumeRenderer:
             rgb_map: [N, 3]
         """
         with torch.no_grad():
-            rgb_map, acc_map = VolumeRenderer.render(network, rays_o, rays_d, time, extra_params, randomize)
-        return rgb_map, acc_map
+            rgb_map, depth_map = VolumeRenderer.render(network, rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map, depth_map
