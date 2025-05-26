@@ -47,7 +47,7 @@ class Trainer:
         self.scaler = torch.amp.GradScaler('cuda', enabled=use_fp16)
 
         # self.scheduler
-        target_lr_ratio = 0.0001
+        target_lr_ratio = 1e-6
         gamma = math.exp(math.log(target_lr_ratio) / 20000)
         warmup_d = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, total_iters=2000)
         main_scheduler_d = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
