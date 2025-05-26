@@ -58,7 +58,7 @@ class VolumeRenderer:
 
         batch_points = batch_rays_o[:, None, :] + batch_rays_d[:, None, :] * z_vals[..., :, None]  # [N, num_samples, 3]
 
-        return batch_points, batch_dist_vals
+        return batch_points, batch_dist_vals, z_vals
 
     @staticmethod
     def assemble_points_with_time(batch_rays_o, batch_rays_d, time, num_samples: int, near: float, far: float, randomize: bool):
@@ -75,9 +75,9 @@ class VolumeRenderer:
             deltas: [N, num_samples]
             rays_d: [N, 3]
         """
-        batch_points, batch_dist_vals = VolumeRenderer.assemble_points(batch_rays_o, batch_rays_d, num_samples, near, far, randomize)  # [N, num_samples, 3]
+        batch_points, batch_dist_vals, z_vals = VolumeRenderer.assemble_points(batch_rays_o, batch_rays_d, num_samples, near, far, randomize)  # [N, num_samples, 3]
         batch_points_with_time = torch.cat([batch_points, time.expand(batch_points.shape[0], batch_points.shape[1], 1)], dim=-1)  # [N, num_samples, 4]
-        return batch_points_with_time, batch_dist_vals
+        return batch_points_with_time, batch_dist_vals, z_vals
 
     @staticmethod
     def render(network, rays_o, rays_d, time, extra_params, randomize):
@@ -95,7 +95,7 @@ class VolumeRenderer:
         num_samples = 192
         device = rays_d.device
 
-        points_with_time, dist_vals = VolumeRenderer.assemble_points_with_time(
+        points_with_time, dist_vals, z_vals = VolumeRenderer.assemble_points_with_time(
             batch_rays_o=rays_o,
             batch_rays_d=rays_d,
             time=time,
@@ -127,7 +127,7 @@ class VolumeRenderer:
         acc_map = torch.sum(weights, dim=-1)  # 每条光线的总权重（可能 < 1）
         rgb_map = torch.sum(weights[..., None] * rgbs, dim=-2) + (1. - acc_map)[..., None] * bg_color
 
-        depth_map = torch.sum(weights * dists_final, dim=-1)  # 每条光线的深度
+        depth_map = torch.sum(weights * z_vals, dim=-1)  # 每条光线的深度
         return rgb_map, depth_map
 
     @staticmethod
