@@ -5,7 +5,7 @@ import types
 import tinycudann as tcnn
 
 
-class NetworkPINeuFlow(torch.nn.Module):
+class NetworkPINeuFlowDynamics(torch.nn.Module):
     def __init__(self,
                  encoding_xyzt: typing.Literal['hyfluid'],
                  encoding_dir: typing.Literal['None', 'frequency', 'sphere_harmonics', 'hashgrid', 'tiledgrid', 'ash', 'hyfluid'],

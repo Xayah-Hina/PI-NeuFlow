@@ -1,5 +1,5 @@
 from .dataset import PINeuFlowDataset, FrustumsSampler
-from .network import NetworkPINeuFlow
+from .network import NetworkPINeuFlowDynamics
 from .renderer import VolumeRenderer
 import torch
 import torch.utils.tensorboard
@@ -25,7 +25,7 @@ class Trainer:
                  ):
         # self.model
         if model == 'PI-NeuFlow':
-            self.model = NetworkPINeuFlow(
+            self.model = NetworkPINeuFlowDynamics(
                 encoding_xyzt='hyfluid',
                 encoding_dir='sphere_harmonics',
                 use_tcnn=use_tcnn,
@@ -47,7 +47,7 @@ class Trainer:
         self.scaler = torch.amp.GradScaler('cuda', enabled=use_fp16)
 
         # self.scheduler
-        target_lr_ratio = 1e-6
+        target_lr_ratio = 1e-4
         gamma = math.exp(math.log(target_lr_ratio) / 20000)
         warmup_d = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, total_iters=2000)
         main_scheduler_d = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
