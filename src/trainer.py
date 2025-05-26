@@ -188,4 +188,4 @@ class Trainer:
                     os.makedirs(os.path.join(self.states.workspace, 'images'), exist_ok=True)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'output_{:03d}_{:03d}.png'.format(i, _)), frame)
                     frames.append(frame)
-            imageiov2.mimsave('results/output.mp4', frames, fps=24)
+            imageiov2.mimsave(os.path.join(f'{self.states.workspace}', 'images', 'output.mp4'), frames, fps=24)
