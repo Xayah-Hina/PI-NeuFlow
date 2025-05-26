@@ -1,5 +1,4 @@
 from .encoder import get_encoder
-from .cuda_extensions.ffmlp import FFMLP
 import torch
 import typing
 import types
@@ -9,7 +8,6 @@ class NetworkPINeuFlow(torch.nn.Module):
     def __init__(self,
                  encoding_xyzt: typing.Literal['hyfluid'],
                  encoding_dir: typing.Literal['None', 'frequency', 'sphere_harmonics', 'hashgrid', 'tiledgrid', 'ash', 'hyfluid'],
-                 use_ffmlp: bool,
                  num_layers_sigma,
                  num_layers_color,
                  hidden_dim_sigma,
@@ -24,48 +22,32 @@ class NetworkPINeuFlow(torch.nn.Module):
         self.encoder_dir = get_encoder(encoding_dir)
 
         # self.sigma_net
-        if use_ffmlp:
-            self.sigma_net = FFMLP(
-                input_dim=self.encoder_xyzt.num_levels * self.encoder_xyzt.features_per_level,
-                output_dim=1 + geo_feat_dim,
-                hidden_dim=hidden_dim_sigma,
-                num_layers=num_layers_sigma,
-            )
-        else:
-            sigma_net = []
-            for l in range(num_layers_sigma):
-                if l == 0:
-                    in_dim = self.encoder_xyzt.num_levels * self.encoder_xyzt.features_per_level
-                else:
-                    in_dim = hidden_dim_sigma
-                if l == num_layers_sigma - 1:
-                    out_dim = 1 + geo_feat_dim  # SB sigma + features for color
-                else:
-                    out_dim = hidden_dim_sigma
-                sigma_net.append(torch.nn.Linear(in_dim, out_dim, bias=False))
-            self.sigma_net = torch.nn.ModuleList(sigma_net)
+        sigma_net = []
+        for l in range(num_layers_sigma):
+            if l == 0:
+                in_dim = self.encoder_xyzt.num_levels * self.encoder_xyzt.features_per_level
+            else:
+                in_dim = hidden_dim_sigma
+            if l == num_layers_sigma - 1:
+                out_dim = 1 + geo_feat_dim  # SB sigma + features for color
+            else:
+                out_dim = hidden_dim_sigma
+            sigma_net.append(torch.nn.Linear(in_dim, out_dim, bias=False))
+        self.sigma_net = torch.nn.ModuleList(sigma_net)
 
         # self.color_net
-        if use_ffmlp:
-            self.color_net = FFMLP(
-                input_dim=self.encoder_dir.output_dim + geo_feat_dim,
-                output_dim=3,
-                hidden_dim=hidden_dim_color,
-                num_layers=num_layers_color,
-            )
-        else:
-            color_net = []
-            for l in range(num_layers_color):
-                if l == 0:
-                    in_dim = self.encoder_dir.output_dim + geo_feat_dim
-                else:
-                    in_dim = hidden_dim_color
-                if l == num_layers_color - 1:
-                    out_dim = 3  # 3 rgb
-                else:
-                    out_dim = hidden_dim_color
-                color_net.append(torch.nn.Linear(in_dim, out_dim, bias=False))
-            self.color_net = torch.nn.ModuleList(color_net)
+        color_net = []
+        for l in range(num_layers_color):
+            if l == 0:
+                in_dim = self.encoder_dir.output_dim + geo_feat_dim
+            else:
+                in_dim = hidden_dim_color
+            if l == num_layers_color - 1:
+                out_dim = 3  # 3 rgb
+            else:
+                out_dim = hidden_dim_color
+            color_net.append(torch.nn.Linear(in_dim, out_dim, bias=False))
+        self.color_net = torch.nn.ModuleList(color_net)
 
         # self.states
         self.states = types.SimpleNamespace()

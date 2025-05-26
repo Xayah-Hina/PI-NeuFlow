@@ -12,8 +12,6 @@ cd ../raymarching
 python -m pip install .
 cd ../shencoder
 python -m pip install .
-cd ../ffmlp
-python -m pip install .
 cd ../../..
 python -m pip install -U "triton-windows<3.3"
 ```

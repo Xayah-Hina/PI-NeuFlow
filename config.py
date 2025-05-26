@@ -27,5 +27,3 @@ class TrainConfig:
     mode: typing.Literal["train", "test"] = dataclasses.field(default="train", metadata={"help": "mode of training"})
     compile: bool = dataclasses.field(default=False, metadata={'help': 'use torch.compile to compile the model for faster training'})
     device: str = dataclasses.field(default='cuda:0', metadata={'help': 'device to use, usually setting to None is OK. (auto choose device)'})
-
-    use_ffmlp: bool = dataclasses.field(default=True, metadata={'help': 'use FFMLP for the model'})
