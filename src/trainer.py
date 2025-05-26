@@ -184,7 +184,7 @@ class Trainer:
                     depth8 = (255 * np.clip(depth_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
 
-                    frame = np.concatenate([gt8, rgb8, depth8])
+                    frame = np.concatenate([gt8, rgb8, depth8], axis=1)
                     os.makedirs(os.path.join(self.states.workspace, 'images'), exist_ok=True)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'output_{:03d}_{:03d}.png'.format(i, _)), frame)
                     frames.append(frame)
