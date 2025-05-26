@@ -69,26 +69,24 @@ class Trainer:
             self.compiled_render = VolumeRenderer.render
             self.compiled_render_no_grad = VolumeRenderer.render_no_grad
 
-        self.load_checkpoint(checkpoint=os.path.join(workspace, 'checkpoint_trained.pth'))
-
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
 
-        sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024, randomize=True)
+        sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024 * 2, randomize=True)
         train_loader = sampler.dataloader(batch_size=1)
 
-        with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
-            sampler.mark_untrained_grid(
-                poses=train_dataset.poses,
-                fx=train_dataset.focals[0].item(),
-                fy=train_dataset.focals[0].item(),
-                cx=train_dataset.widths / 2,
-                cy=train_dataset.heights / 2,
-            )
-            sampler.update_extra_state(network=self.model)
-            # from .visualizer import visualize_density_grid
-            # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
-            # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
+        # with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
+        #     sampler.mark_untrained_grid(
+        #         poses=train_dataset.poses,
+        #         fx=train_dataset.focals[0].item(),
+        #         fy=train_dataset.focals[0].item(),
+        #         cx=train_dataset.widths / 2,
+        #         cy=train_dataset.heights / 2,
+        #     )
+        #     sampler.update_extra_state(network=self.model)
+        # from .visualizer import visualize_density_grid
+        # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=train_dataset.poses.detach().cpu())
+        # visualize_density_grid(sampler.density_grid[0, 0], grid_size=sampler.grid_size, poses=None)
 
         for epoch in range(self.states.epoch, max_epochs):
             self.states.epoch += 1
@@ -116,7 +114,7 @@ class Trainer:
                         #     max_steps=1024,
                         # )
 
-                        rgb_map = self.compiled_render(
+                        rgb_map, acc_map = self.compiled_render(
                             network=self.model,
                             rays_o=rays_o,  # [N, C]
                             rays_d=rays_d,  # [1]
@@ -164,7 +162,7 @@ class Trainer:
                     total_ray_size = data['rays_o'][_].shape[0]
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
-                        rgb_map = self.compiled_render_no_grad(
+                        rgb_map, acc_map = self.compiled_render_no_grad(
                             network=self.model,
                             rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                             rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
@@ -176,19 +174,22 @@ class Trainer:
                     rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
 
                     rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
+                    acc8 = (255 * np.clip(acc_map.numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
+                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'acc_{:03d}_{:03d}.png'.format(i, _)), acc8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, train_cfg):
         state = {
+            'train_cfg': train_cfg,
             'model': self.model.state_dict(),
         }
         torch.save(state, os.path.join(self.states.workspace, 'checkpoint.pth'))
 
     def load_checkpoint(self, checkpoint):
         if not os.path.exists(checkpoint):
-            return
+            raise FileNotFoundError(f"Checkpoint {checkpoint} not found")
         checkpoint_dict = torch.load(checkpoint, map_location=self.states.device)
         missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
         print(f'[load_checkpoint] Missing keys: {missing_keys}, Unexpected keys: {unexpected_keys}')

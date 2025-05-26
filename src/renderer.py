@@ -123,8 +123,12 @@ class VolumeRenderer:
         alpha = 1. - torch.exp(-torch.nn.functional.relu(sigma[..., -1] + noise) * dists_final)
         weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:, :-1]
 
-        rgb_map = torch.sum(weights[..., None] * torch.sigmoid(rgbs), dim=-2)
-        return rgb_map
+        bg_color = torch.tensor([1.0, 1.0, 1.0], device=device, dtype=sigma_filtered.dtype)  # 你可以改成 [0, 0, 0] 黑色 或其他背景
+        acc_map = torch.sum(weights, dim=-1)  # 每条光线的总权重（可能 < 1）
+        rgb_map = torch.sum(weights[..., None] * rgbs, dim=-2) + (1. - acc_map)[..., None] * bg_color
+
+        # rgb_map = torch.sum(weights[..., None] * torch.sigmoid(rgbs), dim=-2)
+        return rgb_map, acc_map
 
     @staticmethod
     @torch.no_grad()
@@ -140,5 +144,5 @@ class VolumeRenderer:
             rgb_map: [N, 3]
         """
         with torch.no_grad():
-            rgb_map = VolumeRenderer.render(network, rays_o, rays_d, time, extra_params, randomize)
-        return rgb_map
+            rgb_map, acc_map = VolumeRenderer.render(network, rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map, acc_map
