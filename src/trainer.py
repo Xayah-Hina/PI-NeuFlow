@@ -179,7 +179,7 @@ class Trainer:
                     acc_map_final = torch.cat(acc_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 1)
 
                     rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
-                    acc8 = (255 * np.clip(acc_map_final.numpy(), 0, 1)).astype(np.uint8)
+                    acc8 = (255 * np.clip(acc_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'acc_{:03d}_{:03d}.png'.format(i, _)), acc8)
