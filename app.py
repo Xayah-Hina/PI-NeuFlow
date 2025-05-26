@@ -37,14 +37,11 @@ if __name__ == "__main__":
     model_state_dict = None
     # load checkpoint
     if cfg.train.select_ckpt:
-        checkpoint = open_file_dialog()
-        ckpt_path = os.path.join(cfg.train.workspace, checkpoint)
-        if os.path.exists(ckpt_path):
-            checkpoint_dict = torch.load(ckpt_path, map_location=device, weights_only=False)
-            cfg_ckpt = checkpoint_dict['train_cfg']
-            cfg_ckpt.train.mode = cfg.train.mode
-            cfg = cfg_ckpt
-            model_state_dict = checkpoint_dict['model']
+        checkpoint_dict = torch.load(os.path.join(cfg.train.workspace, open_file_dialog()), map_location=device, weights_only=False)
+        cfg_ckpt = checkpoint_dict['train_cfg']
+        cfg_ckpt.train.mode = cfg.train.mode
+        cfg = cfg_ckpt
+        model_state_dict = checkpoint_dict['model']
 
     trainer = Trainer(
         name="PI-NeuFlow",

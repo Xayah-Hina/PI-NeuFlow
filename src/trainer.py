@@ -153,6 +153,7 @@ class Trainer:
         train_loader = sampler.dataloader(batch_size=1)
 
         with torch.no_grad():
+            frames = []
             for i, data in enumerate(tqdm.tqdm(train_loader)):
                 data: dict
 
@@ -181,7 +182,9 @@ class Trainer:
                     rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
                     depth8 = (255 * np.clip(depth_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
+
+                    frame = np.concatenate([gt8, rgb8, depth8])
                     os.makedirs(os.path.join(self.states.workspace, 'images'), exist_ok=True)
-                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'rgb_{:03d}_{:03d}.png'.format(i, _)), rgb8)
-                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'depth_{:03d}_{:03d}.png'.format(i, _)), depth8)
-                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'gt_{:03d}_{:03d}.png'.format(i, _)), gt8)
+                    imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'output_{:03d}_{:03d}.png'.format(i, _)), frame)
+                    frames.append(frame, axis=1)
+            imageio.mimsave('results/output.mp4', frames, fps=24)
