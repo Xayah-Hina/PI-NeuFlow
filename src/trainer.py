@@ -1,6 +1,6 @@
 from .dataset import PINeuFlowDataset, FrustumsSampler
-from .network import NetworkPINeuFlowDynamics
-from .renderer import VolumeRenderer
+from .network import NetWorkPINeuFlow
+from .network_pinf import NetworkPINF
 import torch
 import torch.utils.tensorboard
 import tqdm
@@ -14,7 +14,7 @@ class Trainer:
     def __init__(self,
                  name: str,
                  workspace: str,
-                 model: typing.Literal['hyfluid', 'PI-NeuFlow'],
+                 model: typing.Literal['pinf', 'hyfluid', 'PI-NeuFlow'],
                  model_state_dict,
                  learning_rate_encoder: float,
                  learning_rate_network: float,
@@ -25,7 +25,7 @@ class Trainer:
                  ):
         # self.model
         if model == 'PI-NeuFlow':
-            self.model = NetworkPINeuFlowDynamics(
+            self.model = NetWorkPINeuFlow(
                 encoding_xyzt='hyfluid',
                 encoding_dir='sphere_harmonics',
                 use_tcnn=use_tcnn,
@@ -35,10 +35,20 @@ class Trainer:
                 hidden_dim_color=64,
                 geo_feat_dim=32,
             ).to(device)
-            if model_state_dict:
-                self.model.load_state_dict(model_state_dict, strict=False)
+        elif model == 'pinf':
+            self.model = NetworkPINF(
+                netdepth=8,
+                netwidth=256,
+                input_ch=4,
+                use_viewdirs=False,
+                omega=6,
+                use_first_omega=True,
+                fading_layers=50000,
+            ).to(device)
         else:
             raise NotImplementedError(f"Model {model} is not implemented.")
+        if model_state_dict:
+            self.model.load_state_dict(model_state_dict, strict=False)
 
         # self.optimizer
         self.optimizer = torch.optim.RAdam(self.model.get_params(learning_rate_encoder, learning_rate_network), betas=(0.9, 0.99), eps=1e-15)
@@ -65,12 +75,13 @@ class Trainer:
         # debug
         self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
 
+        model: NetWorkPINeuFlow | NetworkPINF
         if use_compile:
-            self.compiled_render = torch.compile(VolumeRenderer.render)
-            self.compiled_render_no_grad = torch.compile(VolumeRenderer.render_no_grad)
+            self.compiled_render = torch.compile(model.render)
+            self.compiled_render_no_grad = torch.compile(model.render_no_grad)
         else:
-            self.compiled_render = VolumeRenderer.render
-            self.compiled_render_no_grad = VolumeRenderer.render_no_grad
+            self.compiled_render = model.render
+            self.compiled_render_no_grad = model.render_no_grad
 
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
@@ -102,26 +113,10 @@ class Trainer:
 
                     self.optimizer.zero_grad()
                     with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
-                        rays_o = data['rays_o'][_]
-                        rays_d = data['rays_d'][_]
-                        time = data['times'][_]
-
-                        # rgb_map, depth_map = sampler.render_cuda(
-                        #     network=self.model,
-                        #     rays_o=rays_o,  # [N, 3]
-                        #     rays_d=rays_d,  # [N, 3]
-                        #     time=time,  # [1]
-                        #     perturb=True,
-                        #     force_all_rays=True,
-                        #     dt_gamma=0.0,
-                        #     max_steps=1024,
-                        # )
-
                         rgb_map, depth_map = self.compiled_render(
-                            network=self.model,
-                            rays_o=rays_o,  # [N, C]
-                            rays_d=rays_d,  # [1]
-                            time=time,  # [N, 3]
+                            rays_o=data['rays_o'][_],  # [N, C]
+                            rays_d=data['rays_d'][_],  # [1]
+                            time=data['times'][_],  # [N, 3]
                             extra_params=train_dataset.extra_params,
                             randomize=True,
                         )
