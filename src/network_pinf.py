@@ -60,19 +60,6 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         self.rgb_linear = torch.nn.Linear(W, 3)
 
-    def update_fading_step(self, fading_step):
-        # should be updated with the global step
-        # e.g., update_fading_step(global_step - radiance_in_step)
-        if fading_step >= 0:
-            self.fading_step = fading_step
-
-    def fading_wei_list(self):
-        # try print(fading_wei_list()) for debug
-        step_ratio = np.clip(float(self.fading_step) / float(max(1e-8, self.fading_fin_step)), 0, 1)
-        ma = 1 + (self.D - 2) * step_ratio  # in range of 1 to self.D-1
-        fading_wei_list = [np.clip(1 + ma - m, 0, 1) * np.clip(1 + m - ma, 0, 1) for m in range(self.D)]
-        return fading_wei_list
-
     def query_density_and_feature(self, input_pts: torch.Tensor):
         h = input_pts
         h_layers = []
@@ -85,9 +72,16 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         # a sliding window (fading_wei_list) to enable deeper layers progressively
         if self.fading_fin_step > self.fading_step:
-            fading_wei_list = self.fading_wei_list()
+            step_ratio = torch.clamp(
+                torch.tensor(float(self.fading_step) / float(max(1e-8, self.fading_fin_step)), device=h.device),
+                0.0, 1.0
+            )
+            ma = 1 + (self.D - 2) * step_ratio
+            m = torch.arange(self.D, dtype=h.float32, device=h.device)
+            weights = torch.clamp(1 + ma - m, 0, 1) * torch.clamp(1 + m - ma, 0, 1)
+
             h = 0
-            for w, y in zip(fading_wei_list, h_layers):
+            for w, y in zip(weights, h_layers):
                 if w > 1e-8:
                     h = w * y + h
 
@@ -111,6 +105,8 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         rgb = self.rgb_linear(h)
         # outputs = torch.cat([rgb, sigma], -1)
+
+        self.fading_step += 1
 
         return torch.sigmoid(rgb), sigma, {}
 
