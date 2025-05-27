@@ -287,7 +287,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
         sigma_filtered = raw_output['sigma_d']  # [filtered / N * num_samples,]
         rgb_filtered = raw_output['rgb_d']  # [filtered / N * num_samples, 3]
         sigma = torch.zeros([N * num_samples], device=device, dtype=sigma_filtered.dtype).masked_scatter(bbox_mask, sigma_filtered).reshape(N, num_samples, 1)  # [N, num_samples, 1]
-        rgb = torch.zeros([N * num_samples, 3], device=device, dtype=rgb_filtered.dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgbs_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
+        rgb = torch.zeros([N * num_samples, 3], device=device, dtype=rgb_filtered.dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
 
         dists_cat = torch.cat([dist_vals, dist_vals[..., -1:]], -1)  # [N, N_depths]
         dists_final = dists_cat * torch.norm(rays_d[..., None, :], dim=-1)  # [N, N_depths]
