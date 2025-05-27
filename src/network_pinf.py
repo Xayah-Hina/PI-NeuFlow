@@ -1,6 +1,5 @@
 from .frustum import *
 import torch
-import numpy as np
 
 
 class SineLayer(torch.nn.Module):
@@ -20,7 +19,7 @@ class SineLayer(torch.nn.Module):
             if is_first:
                 width = 1 / in_features
             else:
-                width = np.sqrt(6 / in_features) / self.omega_0
+                width = (6.0 / in_features) ** 0.5 / self.omega_0
             self.linear.weight.uniform_(-width, width)
 
     def forward(self, inputs):
