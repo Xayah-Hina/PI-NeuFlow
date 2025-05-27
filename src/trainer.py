@@ -162,7 +162,6 @@ class Trainer:
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
                         rgb_map, depth_map = self.compiled_render_no_grad(
-                            network=self.model,
                             rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                             rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
                             time=data['times'][_],  # [1]

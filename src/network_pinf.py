@@ -1,3 +1,4 @@
+from .frustum import *
 import torch
 import numpy as np
 
@@ -119,6 +120,16 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
         return torch.sigmoid(rgb), sigma, {}
 
 
+def weighted_sum_of_samples(wei_list: list[torch.Tensor], content: list[torch.Tensor] | torch.Tensor | None):
+    if isinstance(content, list):  # list of [n_rays, n_samples, dim]
+        return [torch.sum(weights[..., None] * ct, dim=-2) for weights, ct in zip(wei_list, content)]
+
+    elif content is not None:  # [n_rays, n_samples, dim]
+        return [torch.sum(weights[..., None] * content, dim=-2) for weights in wei_list]
+
+    return [torch.sum(weights, dim=-1) for weights in wei_list]
+
+
 class NetworkPINF(torch.nn.Module):
     def __init__(self, netdepth, netwidth, input_ch, use_viewdirs, omega, use_first_omega, fading_layers):
         super().__init__()
@@ -159,3 +170,83 @@ class NetworkPINF(torch.nn.Module):
             {'params': self.dynamic_model.parameters(), 'lr': learning_rate_dynamic, 'eps': 1e-15},
         ]
         return params
+
+    def render(self, rays_o, rays_d, time, extra_params, randomize):
+        """
+        :param rays_o: [N, 3]
+        :param rays_d: [N, 3]
+        :param time: [1]
+        :param extra_params: ExtraParams
+        :param randomize: bool
+        :return:
+            rgb_map: [N, 3]
+        """
+        N = rays_d.shape[0]
+        num_samples = 192
+        device = rays_d.device
+        dtype = rays_d.dtype
+
+        points_with_time, dist_vals, z_vals = assemble_points_with_time(
+            batch_rays_o=rays_o,
+            batch_rays_d=rays_d,
+            time=time,
+            num_samples=num_samples,
+            near=extra_params.nears[0],
+            far=extra_params.fars[0],
+            randomize=randomize,
+        )
+        dists_cat = torch.cat([dist_vals, dist_vals[..., -1:]], -1)  # [N, N_depths]
+        dists_final = dists_cat * torch.norm(rays_d[..., None, :], dim=-1)  # [N, N_depths]
+
+        points_with_time_flat = points_with_time.reshape(-1, 4)  # [N * num_samples, 4]
+        bbox_mask = inside_mask(points_with_time_flat[..., :3], extra_params.s_w2s, extra_params.s_scale, extra_params.s_min, extra_params.s_max, to_float=False)  # [N * num_samples]
+        if not torch.any(bbox_mask):
+            return torch.zeros_like(rays_o)
+        points_time_flat_filtered = points_with_time_flat[bbox_mask]  # [filtered / N * num_samples, 4]
+        rays_d_flat = rays_d[:, None, :].expand(N, num_samples, 3).reshape(-1, 3)  # [N * num_samples, 3]
+        rays_d_flat_filtered = rays_d_flat[bbox_mask]  # [filtered / N * num_samples, 3]
+
+        raw_output = self(points_time_flat_filtered, rays_d_flat_filtered)  # [filtered / N * num_samples,], [filtered / N * num_samples, 3]
+        sigma_d_filtered = raw_output['sigma_d']  # [filtered / N * num_samples,]
+        sigma_s_filtered = raw_output['sigma_s']  # [filtered / N * num_samples,]
+        rgb_d_filtered = raw_output['rgb_d']  # [filtered / N * num_samples, 3]
+        rgb_s_filtered = raw_output['rgb_s']  # [filtered / N * num_samples, 3]
+        sigma_d = torch.zeros([N * num_samples], device=device, dtype=dtype).masked_scatter(bbox_mask, sigma_d_filtered).reshape(N, num_samples, 1)  # [N, num_samples, 1]
+        sigma_s = torch.zeros([N * num_samples], device=device, dtype=dtype).masked_scatter(bbox_mask, sigma_s_filtered).reshape(N, num_samples, 1)  # [N, num_samples, 1]
+        rgb_d = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_d_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
+        rgb_s = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_s_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
+
+        noise = 0.
+        alpha_d = 1. - torch.exp(-torch.nn.functional.relu(sigma_d[..., -1] + noise) * dists_final)  # [N, num_samples, 1]
+        alpha_s = 1. - torch.exp(-torch.nn.functional.relu(sigma_s[..., -1] + noise) * dists_final)  # [N, num_samples, 1]
+
+        alpha_list = [alpha_d, alpha_s]
+        color_list = [rgb_d, rgb_s]
+
+        dens = 1.0 - torch.stack(alpha_list, dim=-1)  # [n_rays, n_samples, 2]
+        dens = torch.cat([dens, torch.prod(dens, dim=-1, keepdim=True)], dim=-1) + 1e-9  # [n_rays, n_samples, 3]
+        Ti_all = torch.cumprod(dens, dim=-2) / dens  # [n_rays, n_samples, 3], accu along samples, exclusive
+        weights_list = [alpha * Ti_all[..., -1] for alpha in alpha_list]  # a list of [n_rays, n_samples]
+
+        rgb_map = sum(weighted_sum_of_samples(weights_list, color_list))  # [n_rays, 3]
+        # Sum of weights along each ray. This value is in [0, 1] up to numerical error.
+        acc_map = sum(weighted_sum_of_samples(weights_list, None))  # [n_rays]
+
+        depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
+
+        return rgb_map, depth_map
+
+    @torch.no_grad()
+    def render_no_grad(self, rays_o, rays_d, time, extra_params, randomize):
+        """
+        :param rays_o: [N, 3]
+        :param rays_d: [N, 3]
+        :param time: [1]
+        :param extra_params: ExtraParams
+        :param randomize: bool
+        :return:
+            rgb_map: [N, 3]
+        """
+        with torch.no_grad():
+            rgb_map, depth_map = self.render(rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map, depth_map
