@@ -75,7 +75,7 @@ if __name__ == "__main__":
                 use_fp16=cfg.dataset.use_fp16,
                 device=device,
             ),
-            max_epochs=20,
+            max_epochs=100,
         )
         state = {
             'train_cfg': cfg,

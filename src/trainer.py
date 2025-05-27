@@ -61,7 +61,7 @@ class Trainer:
 
         # self.scheduler
         target_lr_ratio = 1e-4
-        gamma = math.exp(math.log(target_lr_ratio) / 20000)
+        gamma = math.exp(math.log(target_lr_ratio) / 100000)
         warmup_d = torch.optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, total_iters=2000)
         main_scheduler_d = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=gamma)
         self.scheduler = torch.optim.lr_scheduler.SequentialLR(self.optimizer, schedulers=[warmup_d, main_scheduler_d], milestones=[2000])
