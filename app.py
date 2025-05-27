@@ -76,6 +76,7 @@ if __name__ == "__main__":
                 device=device,
             ),
             max_epochs=100,
+            cfg=cfg,
         )
         state = {
             'train_cfg': cfg,

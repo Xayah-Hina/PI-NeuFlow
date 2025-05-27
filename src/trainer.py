@@ -85,7 +85,7 @@ class Trainer:
             self.compiled_render = self.model.render
             self.compiled_render_no_grad = self.model.render_no_grad
 
-    def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
+    def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int, cfg):
         self.model.train()
 
         sampler = FrustumsSampler(dataset=train_dataset, num_rays=1024 * 2, randomize=True)
@@ -106,6 +106,13 @@ class Trainer:
 
         for epoch in tqdm.trange(self.states.epoch, max_epochs):
             self.states.epoch += 1
+            if self.states.epoch % 100 == 0:
+                import datetime
+                state = {
+                    'train_cfg': cfg,
+                    'model': self.model.state_dict(),
+                }
+                torch.save(state, os.path.join(self.states.workspace, f'checkpoint_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'))
 
             for i, data in enumerate(train_loader):
                 data: dict

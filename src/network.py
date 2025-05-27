@@ -168,7 +168,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
             hidden_dim_color=hidden_dim_color,
             geo_feat_dim=geo_feat_dim,
         )
-        self.background_color = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32) if background_color == 'white' else torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
+        self.background_color = torch.tensor([1.0, 1.0, 1.0]) if background_color == 'white' else torch.tensor([0.0, 0.0, 0.0])
 
     def forward(self, xyzt, dirs):
         sigma_d, rgb_d = self.dynamic_model(xyzt, dirs)
@@ -226,7 +226,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
         weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:, :-1]
 
         acc_map = torch.sum(weights, dim=-1)  # 每条光线的总权重（可能 < 1）
-        rgb_map = torch.sum(weights[..., None] * rgb, dim=-2) + (1. - acc_map)[..., None] * self.background_color
+        rgb_map = torch.sum(weights[..., None] * rgb, dim=-2) + (1. - acc_map)[..., None] * self.background_color.to(device).to(dtype)
 
         depth_map = torch.sum(weights * z_vals, dim=-1)  # 每条光线的深度
         return rgb_map, depth_map
