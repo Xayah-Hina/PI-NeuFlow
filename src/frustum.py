@@ -17,6 +17,7 @@ def assemble_points(batch_rays_o, batch_rays_d, num_samples: int, near: float, f
     assert batch_rays_o.shape[0] == batch_rays_d.shape[0], "batch_rays_o and batch_rays_d must have the same number of rays"
     N = batch_rays_d.shape[0]
     device = batch_rays_d.device
+    dtype = batch_rays_d.dtype
 
     t_vals = torch.linspace(0., 1., steps=num_samples, device=device, dtype=batch_rays_d.dtype).unsqueeze(0)  # [1, num_samples]
     z_vals = (near * (1. - t_vals) + far * t_vals).expand(N, num_samples)  # [N, num_samples]
@@ -25,7 +26,7 @@ def assemble_points(batch_rays_o, batch_rays_d, num_samples: int, near: float, f
         mid_vals = .5 * (z_vals[..., 1:] + z_vals[..., :-1])  # [N, num_samples-1]
         upper_vals = torch.cat([mid_vals, z_vals[..., -1:]], -1)  # [N, num_samples]
         lower_vals = torch.cat([z_vals[..., :1], mid_vals], -1)  # [N, num_samples]
-        t_rand = torch.rand(z_vals.shape, device=device)  # [N, num_samples]
+        t_rand = torch.rand(z_vals.shape, device=device, dtype=dtype)  # [N, num_samples]
         z_vals = lower_vals + (upper_vals - lower_vals) * t_rand  # [N, num_samples]
     batch_dist_vals = z_vals[..., 1:] - z_vals[..., :-1]  # [N, num_samples-1]
 

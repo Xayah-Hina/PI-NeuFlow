@@ -73,11 +73,6 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
         fading_wei_list = [np.clip(1 + ma - m, 0, 1) * np.clip(1 + m - ma, 0, 1) for m in range(self.D)]
         return fading_wei_list
 
-    def print_fading(self):
-        w_list = self.fading_wei_list()
-        _str = ["h%d:%0.03f" % (i, w_list[i]) for i in range(len(w_list)) if w_list[i] > 1e-8]
-        print("; ".join(_str))
-
     def query_density_and_feature(self, input_pts: torch.Tensor):
         h = input_pts
         h_layers = []
@@ -217,8 +212,8 @@ class NetworkPINF(torch.nn.Module):
         rgb_s = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_s_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
 
         noise = 0.
-        alpha_d = 1. - torch.exp(-torch.nn.functional.relu(sigma_d[..., -1] + noise) * dists_final)  # [N, num_samples, 1]
-        alpha_s = 1. - torch.exp(-torch.nn.functional.relu(sigma_s[..., -1] + noise) * dists_final)  # [N, num_samples, 1]
+        alpha_d = 1. - torch.exp(-torch.nn.functional.relu(sigma_d[..., -1] + noise) * dists_final)  # [N, num_samples]
+        alpha_s = 1. - torch.exp(-torch.nn.functional.relu(sigma_s[..., -1] + noise) * dists_final)  # [N, num_samples]
 
         alpha_list = [alpha_d, alpha_s]
         color_list = [rgb_d, rgb_s]
