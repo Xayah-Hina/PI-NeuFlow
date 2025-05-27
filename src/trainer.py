@@ -75,13 +75,12 @@ class Trainer:
         # debug
         self.writer = torch.utils.tensorboard.SummaryWriter(os.path.join(workspace, "run", name))
 
-        model: NetWorkPINeuFlow | NetworkPINF
         if use_compile:
-            self.compiled_render = torch.compile(model.render)
-            self.compiled_render_no_grad = torch.compile(model.render_no_grad)
+            self.compiled_render = torch.compile(self.model.render)
+            self.compiled_render_no_grad = torch.compile(self.model.render_no_grad)
         else:
-            self.compiled_render = model.render
-            self.compiled_render_no_grad = model.render_no_grad
+            self.compiled_render = self.model.render
+            self.compiled_render_no_grad = self.model.render_no_grad
 
     def train(self, train_dataset: PINeuFlowDataset, valid_dataset: PINeuFlowDataset | None, max_epochs: int):
         self.model.train()
