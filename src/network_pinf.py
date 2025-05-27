@@ -77,7 +77,7 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
                 0.0, 1.0
             )
             ma = 1 + (self.D - 2) * step_ratio
-            m = torch.arange(self.D, dtype=h.float32, device=h.device)
+            m = torch.arange(self.D, dtype=h.dtype, device=h.device)
             weights = torch.clamp(1 + ma - m, 0, 1) * torch.clamp(1 + m - ma, 0, 1)
 
             h = 0
