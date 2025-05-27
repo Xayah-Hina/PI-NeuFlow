@@ -10,6 +10,10 @@ import math
 import os
 
 
+def fade_in_weight(step, start, duration):
+    return min(max((float(step) - start) / duration, 0.0), 1.0 - 1e-8)
+
+
 class Trainer:
     def __init__(self,
                  name: str,
@@ -119,10 +123,11 @@ class Trainer:
 
                 for _ in range(train_loader.batch_size):
                     self.states.iteration += 1
+                    tempo_fading = fade_in_weight(self.states.iteration, 0, 10000)
 
                     self.optimizer.zero_grad()
                     with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
-                        rgb_map, depth_map = self.compiled_render(
+                        rgb_map, depth_map, extras = self.compiled_render(
                             rays_o=data['rays_o'][_],  # [N, C]
                             rays_d=data['rays_d'][_],  # [1]
                             time=data['times'][_],  # [N, 3]
@@ -130,13 +135,17 @@ class Trainer:
                             randomize=True,
                         )
                         gt_pixels = data['pixels'][_]  # [N, 3]
-                        img_loss = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
-                    self.scaler.scale(img_loss).backward()
+                        img_loss_d = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
+                        img_loss_s = torch.nn.functional.mse_loss(extras['rgb_s'], gt_pixels)  # [N, 3]
+                        loss = img_loss_d * tempo_fading + img_loss_s * (1.0 - tempo_fading)
+                    self.scaler.scale(loss).backward()
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.scheduler.step()
 
-                    self.writer.add_scalar("train/img_loss", img_loss, self.states.iteration)
+                    self.writer.add_scalar("train/loss", loss, self.states.iteration)
+                    self.writer.add_scalar("train/img_loss_d", img_loss_d, self.states.iteration)
+                    self.writer.add_scalar("train/img_loss_s", img_loss_s, self.states.iteration)
                     self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], self.states.iteration)
 
                     # from .visualizer import visualize_rays
@@ -172,7 +181,7 @@ class Trainer:
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
                         with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
-                            rgb_map, depth_map = self.compiled_render_no_grad(
+                            rgb_map, depth_map, extras = self.compiled_render_no_grad(
                                 rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
                                 rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
                                 time=data['times'][_],  # [1]

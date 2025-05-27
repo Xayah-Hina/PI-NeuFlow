@@ -227,7 +227,17 @@ class NetworkPINF(torch.nn.Module):
 
         depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
 
-        return rgb_map, depth_map
+        self_weights_list = [alpha_list[alpha_i] * Ti_all[..., alpha_i] for alpha_i in range(len(alpha_list))]  # a list of [n_rays, n_samples]
+        rgb_map_stack = weighted_sum_of_samples(self_weights_list, color_list)
+        acc_map_stack = weighted_sum_of_samples(self_weights_list, None)
+        extras = {
+            'acc_d': acc_map_stack[0],
+            'acc_s': acc_map_stack[1],
+            'rgb_d': rgb_map_stack[0] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[0][..., None]),
+            'rgb_s': rgb_map_stack[1] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[1][..., None]),
+        }
+
+        return rgb_map, depth_map, extras
 
     @torch.no_grad()
     def render_no_grad(self, rays_o, rays_d, time, extra_params, randomize):

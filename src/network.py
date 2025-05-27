@@ -230,7 +230,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
         rgb_map = torch.sum(weights[..., None] * rgb, dim=-2) + (1. - acc_map)[..., None] * self.background_color.to(device).to(dtype)
 
         depth_map = torch.sum(weights * z_vals, dim=-1)  # 每条光线的深度
-        return rgb_map, depth_map
+        return rgb_map, depth_map, {}
 
     @torch.no_grad()
     def render_no_grad(self, rays_o, rays_d, time, extra_params, randomize):
