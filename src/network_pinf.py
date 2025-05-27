@@ -1,5 +1,6 @@
 from .frustum import *
 import torch
+import typing
 
 
 class SineLayer(torch.nn.Module):
@@ -121,7 +122,7 @@ def weighted_sum_of_samples(wei_list: list[torch.Tensor], content: list[torch.Te
 
 
 class NetworkPINF(torch.nn.Module):
-    def __init__(self, netdepth, netwidth, input_ch, use_viewdirs, omega, use_first_omega, fading_layers):
+    def __init__(self, netdepth, netwidth, input_ch, use_viewdirs, omega, use_first_omega, fading_layers, background_color: typing.Literal['white', 'black']):
         super().__init__()
         self.static_model = SIREN_NeRFt(
             D=netdepth,
@@ -141,6 +142,7 @@ class NetworkPINF(torch.nn.Module):
             unique_first=use_first_omega,
             fading_fin_step=fading_layers
         )
+        self.background_color = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32) if background_color == 'white' else torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
 
     def forward(self, x, dirs):
         rgb_s, sigma_s, extra_s = self.static_model.forward(x[..., :3], dirs)
@@ -221,6 +223,7 @@ class NetworkPINF(torch.nn.Module):
         rgb_map = sum(weighted_sum_of_samples(weights_list, color_list))  # [n_rays, 3]
         # Sum of weights along each ray. This value is in [0, 1] up to numerical error.
         acc_map = sum(weighted_sum_of_samples(weights_list, None))  # [n_rays]
+        rgb_map = rgb_map + self.background_color * (1.0 - acc_map[..., None])
 
         depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
 

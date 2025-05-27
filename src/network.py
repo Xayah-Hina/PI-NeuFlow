@@ -149,6 +149,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
     def __init__(self,
                  encoding_xyzt: typing.Literal['hyfluid'],
                  encoding_dir: typing.Literal['None', 'frequency', 'sphere_harmonics', 'hashgrid', 'tiledgrid', 'ash', 'hyfluid'],
+                 background_color: typing.Literal['white', 'black'],
                  use_tcnn: bool,
                  num_layers_sigma,
                  num_layers_color,
@@ -167,6 +168,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
             hidden_dim_color=hidden_dim_color,
             geo_feat_dim=geo_feat_dim,
         )
+        self.background_color = torch.tensor([1.0, 1.0, 1.0], dtype=torch.float32) if background_color == 'white' else torch.tensor([0.0, 0.0, 0.0], dtype=torch.float32)
 
     def forward(self, xyzt, dirs):
         sigma_d, rgb_d = self.dynamic_model(xyzt, dirs)
@@ -223,9 +225,8 @@ class NetWorkPINeuFlow(torch.nn.Module):
         alpha = 1. - torch.exp(-torch.nn.functional.relu(sigma[..., -1] + noise) * dists_final)
         weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1), device=device), 1. - alpha + 1e-10], -1), -1)[:, :-1]
 
-        bg_color = torch.tensor([1.0, 1.0, 1.0], device=device, dtype=sigma_filtered.dtype)  # 你可以改成 [0, 0, 0] 黑色 或其他背景
         acc_map = torch.sum(weights, dim=-1)  # 每条光线的总权重（可能 < 1）
-        rgb_map = torch.sum(weights[..., None] * rgb, dim=-2) + (1. - acc_map)[..., None] * bg_color
+        rgb_map = torch.sum(weights[..., None] * rgb, dim=-2) + (1. - acc_map)[..., None] * self.background_color
 
         depth_map = torch.sum(weights * z_vals, dim=-1)  # 每条光线的深度
         return rgb_map, depth_map

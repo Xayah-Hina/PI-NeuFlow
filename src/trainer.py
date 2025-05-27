@@ -16,6 +16,7 @@ class Trainer:
                  workspace: str,
                  model: typing.Literal['pinf', 'hyfluid', 'PI-NeuFlow'],
                  model_state_dict,
+                 background_color: typing.Literal['white', 'black'],
                  learning_rate_encoder: float,
                  learning_rate_network: float,
                  use_fp16: bool,
@@ -28,6 +29,7 @@ class Trainer:
             self.model = NetWorkPINeuFlow(
                 encoding_xyzt='hyfluid',
                 encoding_dir='sphere_harmonics',
+                background_color=background_color,
                 use_tcnn=use_tcnn,
                 num_layers_sigma=3,
                 num_layers_color=3,
@@ -44,6 +46,7 @@ class Trainer:
                 omega=6,
                 use_first_omega=True,
                 fading_layers=50000,
+                background_color=background_color,
             ).to(device)
         else:
             raise NotImplementedError(f"Model {model} is not implemented.")

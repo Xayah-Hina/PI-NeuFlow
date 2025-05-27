@@ -7,6 +7,7 @@ import typing
 class DatasetConfig:
     data_dir: str = dataclasses.field(default=os.path.abspath(os.path.join(os.getcwd(), 'data')), metadata={'help': 'data directory'})
     dataset_dir: str = dataclasses.field(default='', metadata={'help': 'base directory of dataset'})
+    background_color: typing.Literal['white', 'black'] = dataclasses.field(default='black', metadata={'help': 'background color of the dataset'})
     downscale: int = dataclasses.field(default=1, metadata={'help': 'downscale factor for images'})
 
     use_preload: bool = dataclasses.field(default=True, metadata={'help': 'preload all data into GPU, accelerate training but use more GPU memory'})

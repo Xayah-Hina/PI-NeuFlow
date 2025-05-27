@@ -48,6 +48,7 @@ if __name__ == "__main__":
         workspace=cfg.train.workspace,
         model=cfg.train.model,
         model_state_dict=model_state_dict,
+        background_color=cfg.dataset.background_color,
         learning_rate_encoder=1e-3,
         learning_rate_network=1e-3,
         use_fp16=cfg.dataset.use_fp16,
