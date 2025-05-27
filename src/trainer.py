@@ -161,13 +161,14 @@ class Trainer:
                     total_ray_size = data['rays_o'][_].shape[0]
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
-                        rgb_map, depth_map = self.compiled_render_no_grad(
-                            rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
-                            rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
-                            time=data['times'][_],  # [1]
-                            extra_params=test_dataset.extra_params,
-                            randomize=False,
-                        )  # [N, 3]
+                        with torch.amp.autocast('cuda', enabled=self.states.use_fp16):
+                            rgb_map, depth_map = self.compiled_render_no_grad(
+                                rays_o=data['rays_o'][_][start:start + batch_ray_size],  # [N, 3]
+                                rays_d=data['rays_d'][_][start:start + batch_ray_size],  # [N, 3]
+                                time=data['times'][_],  # [1]
+                                extra_params=test_dataset.extra_params,
+                                randomize=False,
+                            )  # [N, 3]
                         rgb_map_final.append(rgb_map.detach().cpu())
                         depth_map_final.append(depth_map.detach().cpu())
                     rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
