@@ -194,6 +194,7 @@ class NetWorkPINeuFlow(torch.nn.Module):
         N = rays_d.shape[0]
         num_samples = 192
         device = rays_d.device
+        dtype = rays_d.dtype
 
         points_with_time, dist_vals, z_vals = assemble_points_with_time(
             batch_rays_o=rays_o,
