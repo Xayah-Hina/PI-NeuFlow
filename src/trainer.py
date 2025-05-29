@@ -110,7 +110,7 @@ class Trainer:
 
         for epoch in tqdm.trange(self.states.epoch, max_epochs):
             self.states.epoch += 1
-            if self.states.epoch % 100 == 0:
+            if self.states.epoch % 10 == 0:
                 import datetime
                 state = {
                     'train_cfg': cfg,
@@ -136,7 +136,7 @@ class Trainer:
                         )
                         gt_pixels = data['pixels'][_]  # [N, 3]
                         img_loss_d = torch.nn.functional.mse_loss(rgb_map, gt_pixels)  # [N, 3]
-                        img_loss_s = torch.nn.functional.mse_loss(extras['rgb_s'], gt_pixels)  # [N, 3]
+                        img_loss_s = torch.nn.functional.mse_loss(extras['static'].rgb, gt_pixels)  # [N, 3]
                         loss = img_loss_d * tempo_fading + img_loss_s * (1.0 - tempo_fading)
                     self.scaler.scale(loss).backward()
                     self.scaler.step(self.optimizer)
