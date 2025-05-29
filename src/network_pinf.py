@@ -131,6 +131,158 @@ def weighted_sum_of_samples(wei_list: list[torch.Tensor], content: list[torch.Te
     return [torch.sum(weights, dim=-1) for weights in wei_list]
 
 
+class NeRFOutputs:
+    def __init__(self, rgb_map: torch.Tensor, depth_map: torch.Tensor | None, acc_map: torch.Tensor, **kwargs):
+        """
+        Args:
+            rgb_map: [n_rays, 3]. Estimated RGB color of a ray.
+            depth_map: [n_rays]. Depth map. Optional.
+            acc_map: [n_rays]. Sum of weights along each ray.
+        """
+        self.rgb = rgb_map
+        self.depth = depth_map
+        self.acc = acc_map
+        self.extras = kwargs
+
+    def as_tuple(self):
+        return self.rgb, self.depth, self.acc, self.extras
+
+    @staticmethod
+    def merge(outputs: list["NeRFOutputs"], shape=None, skip_extras=False) -> "NeRFOutputs":
+        """Merge list of outputs into one
+        Args:
+            outputs: Outputs from different batches.
+            shape: If not none, reshape merged outputs' first dimension
+            skip_extras: Ignore extras when merging, used for merging coarse outputs
+        """
+        if len(outputs) == 1:  # when training
+            return outputs[0]
+        extras = {}
+        if not skip_extras:
+            keys = outputs[0].extras.keys()  # all extras must have same keys
+            extras = {k: [] for k in keys}
+            for output in outputs:
+                for k in keys:
+                    extras[k].append(output.extras[k])
+            for k in extras:
+                assert isinstance(extras[k][0], (torch.Tensor, NeRFOutputs)), \
+                    "All extras must be either torch.Tensor or NeRFOutputs when merging"
+                if isinstance(extras[k][0], NeRFOutputs):
+                    extras[k] = NeRFOutputs.merge(extras[k], shape)  # recursive merging
+                elif extras[k][0].dim() == 0:
+                    extras[k] = torch.tensor(extras[k]).mean()  # scalar value, reduce to avg
+                else:
+                    extras[k] = torch.cat(extras[k])
+
+        ret = NeRFOutputs(
+            torch.cat([out.rgb for out in outputs]),
+            torch.cat([out.depth for out in outputs]) if outputs[0].depth is not None else None,
+            torch.cat([out.acc for out in outputs]),
+            **extras
+        )
+        if shape is not None:
+            ret.rgb = ret.rgb.reshape(*shape, 3)
+            ret.depth = ret.depth.reshape(shape) if ret.depth is not None else None
+            ret.acc = ret.acc.reshape(shape)
+            for k in ret.extras:
+                if isinstance(ret.extras[k], torch.Tensor) and ret.extras[k].dim() > 0:
+                    ret.extras[k] = torch.reshape(ret.extras[k], [*shape, *ret.extras[k].shape[1:]])
+        return ret
+
+    def add_background(self, background: torch.Tensor):
+        """Add background to rgb output
+        Args:
+            background: scalar or image
+        """
+        self.rgb = self.rgb + background * (1.0 - self.acc[..., None])
+        for v in self.extras.values():
+            if isinstance(v, NeRFOutputs):
+                v.add_background(background)
+
+
+def raw2outputs(raw, z_vals, rays_d, mask=None, cos_anneal_ratio=1.0) -> tuple[NeRFOutputs, torch.Tensor]:
+    """Transforms model's predictions to semantically meaningful values.
+    Args:
+        raw: returned result of RadianceField: rgb, sigma, extra. Prediction from model.
+        z_vals: [num_rays, num_samples along ray]. Integration time.
+        rays_d: [num_rays, 3]. Direction of each ray.
+        mask: [num_rays, num_samples]. aabb masking
+        cos_anneal_ratio: float.
+    Returns:
+        rgb_map: [num_rays, 3]. Estimated RGB color of a ray.
+        acc_map: [num_rays]. Sum of weights along each ray.
+        weights: [num_rays, num_samples]. Weights assigned to each sampled color.
+        depth_map: [num_rays]. Estimated distance to object.
+    """
+    dists = z_vals[..., 1:] - z_vals[..., :-1]
+    # dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[..., :1].shape)], -1)  # [n_rays, n_samples]
+    dists = torch.cat([dists, dists[..., -1:]], -1)
+
+    dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
+
+    def sigma2alpha(sigma: torch.Tensor):  # [n_rays, n_samples, 1] -> [n_rays, n_samples, 1]
+        if mask is not None:
+            sigma = sigma * mask
+        alpha = 1.0 - torch.exp(-sigma.squeeze(-1) * dists)  # [n_rays, n_samples]
+        return alpha
+
+    extra: dict = raw[2]
+    gradients = None
+    if 'sdf' in extra:
+        raise NotImplementedError("SDF is not supported in raw2outputs")
+
+    elif 'sigma_s' in extra:
+        alpha_list = [sigma2alpha(extra['sigma_d']), sigma2alpha(extra['sigma_s'])]
+        color_list = [extra['rgb_d'], extra['rgb_s']]
+
+    else:
+        # shortcut for single model
+        alpha = sigma2alpha(raw[1])
+        rgb = raw[0]
+        weights = alpha * torch.cumprod(
+            torch.cat([torch.ones((alpha.shape[0], 1), device=alpha.device), 1. - alpha + 1e-10], -1), -1)[:, :-1]
+        rgb_map = torch.sum(weights[..., None] * rgb, -2)  # [n_rays, 3]
+        # depth_map = torch.sum(weights * z_vals, -1)
+        depth_map = None  # unused
+        acc_map = torch.sum(weights, -1)
+        return NeRFOutputs(rgb_map, depth_map, acc_map), weights
+
+    for key in 'rgb_s', 'rgb_d', 'dynamic':
+        extra.pop(key, None)
+
+    dens = 1.0 - torch.stack(alpha_list, dim=-1)  # [n_rays, n_samples, 2]
+    dens = torch.cat([dens, torch.prod(dens, dim=-1, keepdim=True)], dim=-1) + 1e-9  # [n_rays, n_samples, 3]
+    Ti_all = torch.cumprod(dens, dim=-2) / dens  # [n_rays, n_samples, 3], accu along samples, exclusive
+    weights_list = [alpha * Ti_all[..., -1] for alpha in alpha_list]  # a list of [n_rays, n_samples]
+
+    rgb_map = sum(weighted_sum_of_samples(weights_list, color_list))  # [n_rays, 3]
+    # Sum of weights along each ray. This value is in [0, 1] up to numerical error.
+    acc_map = sum(weighted_sum_of_samples(weights_list, None))  # [n_rays]
+
+    # Estimated depth map is expected distance.
+    # Disparity map is inverse depth.
+    # depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
+    depth_map = None
+    # disp_map = 1. / torch.max(1e-10 * torch.ones_like(depth_map), depth_map / acc_map)
+    # alpha * Ti
+    weights = weights_list[0]  # [n_rays, n_samples]
+
+    if len(alpha_list) > 1:  # hybrid model
+        self_weights_list = [alpha_list[alpha_i] * Ti_all[..., alpha_i] for alpha_i in
+                             range(len(alpha_list))]  # a list of [n_rays, n_samples]
+        rgb_map_stack = weighted_sum_of_samples(self_weights_list, color_list)
+        acc_map_stack = weighted_sum_of_samples(self_weights_list, None)
+
+        if gradients is not None:
+            extra['grad_map'] = weighted_sum_of_samples(self_weights_list[1:], gradients)[0]
+
+        # assume len(alpha_list) == 2 for hybrid model
+        extra['dynamic'] = NeRFOutputs(rgb_map_stack[0], None, acc_map_stack[0])
+        extra['static'] = NeRFOutputs(rgb_map_stack[1], None, acc_map_stack[1])
+
+    return NeRFOutputs(rgb_map, depth_map, acc_map, **extra), weights
+
+
 class NetworkPINF(torch.nn.Module):
     def __init__(self, netdepth, netwidth, input_ch, use_viewdirs, omega, use_first_omega, fading_layers, background_color: typing.Literal['white', 'black']):
         super().__init__()
@@ -209,6 +361,8 @@ class NetworkPINF(torch.nn.Module):
         rays_d_flat_filtered = rays_d_flat[bbox_mask]  # [filtered / N * num_samples, 3]
 
         raw_output = self(points_time_flat_filtered, rays_d_flat_filtered)  # [filtered / N * num_samples,], [filtered / N * num_samples, 3]
+
+##########
         sigma_d_filtered = raw_output['sigma_d']  # [filtered / N * num_samples,]
         sigma_s_filtered = raw_output['sigma_s']  # [filtered / N * num_samples,]
         rgb_d_filtered = raw_output['rgb_d']  # [filtered / N * num_samples, 3]
@@ -218,35 +372,62 @@ class NetworkPINF(torch.nn.Module):
         rgb_d = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_d_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
         rgb_s = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_s_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
 
-        noise = 0.
-        alpha_d = 1. - torch.exp(-torch.nn.functional.relu(sigma_d[..., -1] + noise) * dists_final)  # [N, num_samples]
-        alpha_s = 1. - torch.exp(-torch.nn.functional.relu(sigma_s[..., -1] + noise) * dists_final)  # [N, num_samples]
 
-        alpha_list = [alpha_d, alpha_s]
-        color_list = [rgb_d, rgb_s]
+        sigma = sigma_s + sigma_d
+        rgb = (rgb_s * sigma_s + rgb_d * sigma_d) / (sigma + 1e-6)
+        raw = [
+            rgb.reshape(N, num_samples, 3),
+            sigma.reshape(N, num_samples, 1),
+            {
+                'rgb_s': rgb_s.reshape(N, num_samples, 3),
+                'rgb_d': rgb_d.reshape(N, num_samples, 3),
+                'sigma_s': sigma_s.reshape(N, num_samples, 1),
+                'sigma_d': sigma_d.reshape(N, num_samples, 1),
+            }
+        ]
+        output, _1 = raw2outputs(raw, z_vals.reshape(N, num_samples), rays_d, bbox_mask.reshape(N, num_samples, 1))
+##########
+        # sigma_d_filtered = raw_output['sigma_d']  # [filtered / N * num_samples,]
+        # sigma_s_filtered = raw_output['sigma_s']  # [filtered / N * num_samples,]
+        # rgb_d_filtered = raw_output['rgb_d']  # [filtered / N * num_samples, 3]
+        # rgb_s_filtered = raw_output['rgb_s']  # [filtered / N * num_samples, 3]
+        # sigma_d = torch.zeros([N * num_samples], device=device, dtype=dtype).masked_scatter(bbox_mask, sigma_d_filtered).reshape(N, num_samples, 1)  # [N, num_samples, 1]
+        # sigma_s = torch.zeros([N * num_samples], device=device, dtype=dtype).masked_scatter(bbox_mask, sigma_s_filtered).reshape(N, num_samples, 1)  # [N, num_samples, 1]
+        # rgb_d = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_d_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
+        # rgb_s = torch.zeros([N * num_samples, 3], device=device, dtype=dtype).masked_scatter(bbox_mask.unsqueeze(-1), rgb_s_filtered).reshape(N, num_samples, 3)  # [N, num_samples, 3]
+        #
+        # noise = 0.
+        # alpha_d = 1. - torch.exp(-torch.nn.functional.relu(sigma_d[..., -1] + noise) * dists_final)  # [N, num_samples]
+        # alpha_s = 1. - torch.exp(-torch.nn.functional.relu(sigma_s[..., -1] + noise) * dists_final)  # [N, num_samples]
+        #
+        # alpha_list = [alpha_d, alpha_s]
+        # color_list = [rgb_d, rgb_s]
 
-        dens = 1.0 - torch.stack(alpha_list, dim=-1)  # [n_rays, n_samples, 2]
-        dens = torch.cat([dens, torch.prod(dens, dim=-1, keepdim=True)], dim=-1) + 1e-9  # [n_rays, n_samples, 3]
-        Ti_all = torch.cumprod(dens, dim=-2) / dens  # [n_rays, n_samples, 3], accu along samples, exclusive
-        weights_list = [alpha * Ti_all[..., -1] for alpha in alpha_list]  # a list of [n_rays, n_samples]
+        # dens = 1.0 - torch.stack(alpha_list, dim=-1)  # [n_rays, n_samples, 2]
+        # dens = torch.cat([dens, torch.prod(dens, dim=-1, keepdim=True)], dim=-1) + 1e-9  # [n_rays, n_samples, 3]
+        # Ti_all = torch.cumprod(dens, dim=-2) / dens  # [n_rays, n_samples, 3], accu along samples, exclusive
+        # weights_list = [alpha * Ti_all[..., -1] for alpha in alpha_list]  # a list of [n_rays, n_samples]
+        #
+        # rgb_map = sum(weighted_sum_of_samples(weights_list, color_list))  # [n_rays, 3]
+        # # Sum of weights along each ray. This value is in [0, 1] up to numerical error.
+        # acc_map = sum(weighted_sum_of_samples(weights_list, None))  # [n_rays]
+        # rgb_map = rgb_map + self.background_color.to(device).to(dtype) * (1.0 - acc_map[..., None])
+        #
+        # depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
+        #
+        # self_weights_list = [alpha_list[alpha_i] * Ti_all[..., alpha_i] for alpha_i in range(len(alpha_list))]  # a list of [n_rays, n_samples]
+        # rgb_map_stack = weighted_sum_of_samples(self_weights_list, color_list)
+        # acc_map_stack = weighted_sum_of_samples(self_weights_list, None)
+        # extras = {
+        #     'acc_d': acc_map_stack[0],
+        #     'acc_s': acc_map_stack[1],
+        #     'rgb_d': rgb_map_stack[0] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[0][..., None]),
+        #     'rgb_s': rgb_map_stack[1] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[1][..., None]),
+        # }
 
-        rgb_map = sum(weighted_sum_of_samples(weights_list, color_list))  # [n_rays, 3]
-        # Sum of weights along each ray. This value is in [0, 1] up to numerical error.
-        acc_map = sum(weighted_sum_of_samples(weights_list, None))  # [n_rays]
-        rgb_map = rgb_map + self.background_color.to(device).to(dtype) * (1.0 - acc_map[..., None])
-
-        depth_map = sum(weighted_sum_of_samples(weights_list, z_vals[..., None]))  # [n_rays]
-
-        self_weights_list = [alpha_list[alpha_i] * Ti_all[..., alpha_i] for alpha_i in range(len(alpha_list))]  # a list of [n_rays, n_samples]
-        rgb_map_stack = weighted_sum_of_samples(self_weights_list, color_list)
-        acc_map_stack = weighted_sum_of_samples(self_weights_list, None)
-        extras = {
-            'acc_d': acc_map_stack[0],
-            'acc_s': acc_map_stack[1],
-            'rgb_d': rgb_map_stack[0] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[0][..., None]),
-            'rgb_s': rgb_map_stack[1] + self.background_color.to(device).to(dtype) * (1.0 - acc_map_stack[1][..., None]),
-        }
-
+        rgb_map = output.rgb
+        depth_map = output.depth
+        extras = output.extras
         return rgb_map, depth_map, extras
 
     @torch.no_grad()
