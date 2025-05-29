@@ -39,6 +39,7 @@ if __name__ == "__main__":
     if cfg.train.select_ckpt:
         checkpoint_dict = torch.load(os.path.join(cfg.train.workspace, open_file_dialog()), map_location=device, weights_only=False)
         cfg_ckpt = checkpoint_dict['train_cfg']
+        cfg_ckpt.dataset.data_dir = cfg.dataset.data_dir
         cfg_ckpt.train.mode = cfg.train.mode
         cfg = cfg_ckpt
         model_state_dict = checkpoint_dict['model']
@@ -75,7 +76,7 @@ if __name__ == "__main__":
                 use_fp16=cfg.dataset.use_fp16,
                 device=device,
             ),
-            max_epochs=100,
+            max_epochs=400,
             cfg=cfg,
         )
         state = {

@@ -1,6 +1,7 @@
 from .frustum import *
 import torch
 import typing
+import numpy as np
 
 
 class SineLayer(torch.nn.Module):
@@ -27,7 +28,7 @@ class SineLayer(torch.nn.Module):
         return torch.sin(self.omega_0 * self.linear(inputs))
 
 
-class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original NeRF paper
+class SIREN_NeRFt(torch.nn.Module):
     def __init__(self, D=8, W=256, input_ch=4, skips=(4,), use_viewdirs=False, first_omega_0=30.0, unique_first=False, fading_fin_step=0):
         """
         fading_fin_step: >0, to fade in layers one by one, fully faded in when self.fading_step >= fading_fin_step
@@ -60,7 +61,25 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         self.rgb_linear = torch.nn.Linear(W, 3)
 
-    def query_density_and_feature(self, input_pts: torch.Tensor):
+    def update_fading_step(self, fading_step):
+        # should be updated with the global step
+        # e.g., update_fading_step(global_step - radiance_in_step)
+        if fading_step >= 0:
+            self.fading_step = fading_step
+
+    def fading_wei_list(self):
+        # try print(fading_wei_list()) for debug
+        step_ratio = np.clip(float(self.fading_step) / float(max(1e-8, self.fading_fin_step)), 0, 1)
+        ma = 1 + (self.D - 2) * step_ratio  # in range of 1 to self.D-1
+        fading_wei_list = [np.clip(1 + ma - m, 0, 1) * np.clip(1 + m - ma, 0, 1) for m in range(self.D)]
+        return fading_wei_list
+
+    def print_fading(self):
+        w_list = self.fading_wei_list()
+        _str = ["h%d:%0.03f" % (i, w_list[i]) for i in range(len(w_list)) if w_list[i] > 1e-8]
+        print("; ".join(_str))
+
+    def query_density_and_feature(self, input_pts: torch.Tensor, cond: torch.Tensor):
         h = input_pts
         h_layers = []
         for i, l in enumerate(self.pts_linears):
@@ -72,27 +91,20 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         # a sliding window (fading_wei_list) to enable deeper layers progressively
         if self.fading_fin_step > self.fading_step:
-            step_ratio = torch.clamp(
-                torch.tensor(float(self.fading_step) / float(max(1e-8, self.fading_fin_step)), device=h.device),
-                0.0, 1.0
-            )
-            ma = 1 + (self.D - 2) * step_ratio
-            m = torch.arange(self.D, dtype=h.dtype, device=h.device)
-            weights = torch.clamp(1 + ma - m, 0, 1) * torch.clamp(1 + m - ma, 0, 1)
-
+            fading_wei_list = self.fading_wei_list()
             h = 0
-            for w, y in zip(weights, h_layers):
+            for w, y in zip(fading_wei_list, h_layers):
                 if w > 1e-8:
                     h = w * y + h
 
         sigma = self.sigma_linear(h)
         return torch.nn.functional.relu(sigma), h
 
-    def query_density(self, x: torch.Tensor) -> torch.Tensor:
-        return self.query_density_and_feature(x)[0]
+    def query_density(self, x: torch.Tensor, cond: torch.Tensor = None) -> torch.Tensor:
+        return self.query_density_and_feature(x, cond)[0]
 
-    def forward(self, x, dirs):
-        sigma, h = self.query_density_and_feature(x)
+    def forward(self, x, dirs, cond: torch.Tensor = None):
+        sigma, h = self.query_density_and_feature(x, cond)
 
         if self.use_viewdirs:
             input_pts_feature = self.feature_linear(h)
@@ -105,8 +117,6 @@ class SIREN_NeRFt(torch.nn.Module):  # Alias for SIREN_NeRF_t, used in original 
 
         rgb = self.rgb_linear(h)
         # outputs = torch.cat([rgb, sigma], -1)
-
-        self.fading_step += 1
 
         return torch.sigmoid(rgb), sigma, {}
 
@@ -251,5 +261,5 @@ class NetworkPINF(torch.nn.Module):
             rgb_map: [N, 3]
         """
         with torch.no_grad():
-            rgb_map, depth_map = self.render(rays_o, rays_d, time, extra_params, randomize)
-        return rgb_map, depth_map
+            rgb_map, depth_map, extras = self.render(rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map, depth_map, extras
