@@ -353,9 +353,10 @@ class NetworkPINF(torch.nn.Module):
         dists_final = dists_cat * torch.norm(rays_d[..., None, :], dim=-1)  # [N, N_depths]
 
         points_with_time_flat = points_with_time.reshape(-1, 4)  # [N * num_samples, 4]
-        bbox_mask = inside_mask(points_with_time_flat[..., :3], extra_params.s_w2s, extra_params.s_scale, extra_params.s_min, extra_params.s_max, to_float=False)  # [N * num_samples]
-        if not torch.any(bbox_mask):
-            return torch.zeros_like(rays_o)
+        bbox_mask = torch.ones_like(points_with_time_flat[..., 0], dtype=torch.bool)  # [N * num_samples, 1]
+        # bbox_mask = inside_mask(points_with_time_flat[..., :3], extra_params.s_w2s, extra_params.s_scale, extra_params.s_min, extra_params.s_max, to_float=False)  # [N * num_samples]
+        # if not torch.any(bbox_mask):
+        #     return torch.zeros_like(rays_o)
         points_time_flat_filtered = points_with_time_flat[bbox_mask]  # [filtered / N * num_samples, 4]
         rays_d_flat = rays_d[:, None, :].expand(N, num_samples, 3).reshape(-1, 3)  # [N * num_samples, 3]
         rays_d_flat_filtered = rays_d_flat[bbox_mask]  # [filtered / N * num_samples, 3]

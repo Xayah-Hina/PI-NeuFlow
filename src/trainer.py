@@ -177,6 +177,8 @@ class Trainer:
                     gt_pixels = data['pixels'][_].reshape(test_dataset.heights, test_dataset.widths, 3)  # [H, W, 3]
                     rgb_map_final = []
                     depth_map_final = []
+                    rgb_static_map_final = []
+                    rgb_dynamic_map_final = []
                     total_ray_size = data['rays_o'][_].shape[0]
                     batch_ray_size = 1024 * 8
                     for start in range(0, total_ray_size, batch_ray_size):
@@ -189,15 +191,21 @@ class Trainer:
                                 randomize=False,
                             )  # [N, 3]
                         rgb_map_final.append(rgb_map.detach().cpu())
-                        depth_map_final.append(depth_map.detach().cpu())
+                        rgb_static_map_final.append(extras['static'].rgb.detach().cpu())
+                        rgb_dynamic_map_final.append(extras['dynamic'].rgb.detach().cpu())
+                        # depth_map_final.append(depth_map.detach().cpu())
                     rgb_map_final = torch.cat(rgb_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
-                    depth_map_final = torch.cat(depth_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 1)
+                    # depth_map_final = torch.cat(depth_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 1)
+                    rgb_static_map_final = torch.cat(rgb_static_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
+                    rgb_dynamic_map_final = torch.cat(rgb_dynamic_map_final, dim=0).reshape(test_dataset.heights, test_dataset.widths, 3)
 
                     rgb8 = (255 * np.clip(rgb_map_final.numpy(), 0, 1)).astype(np.uint8)
-                    depth8 = (255 * np.clip(depth_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
+                    # depth8 = (255 * np.clip(depth_map_final.expand_as(rgb_map_final).numpy(), 0, 1)).astype(np.uint8)
                     gt8 = (255 * np.clip(gt_pixels.cpu().numpy(), 0, 1)).astype(np.uint8)
+                    rgb_static8 = (255 * np.clip(rgb_static_map_final.numpy(), 0, 1)).astype(np.uint8)
+                    rgb_dynamic8 = (255 * np.clip(rgb_dynamic_map_final.numpy(), 0, 1)).astype(np.uint8)
 
-                    frame = np.concatenate([gt8, rgb8, depth8], axis=1)
+                    frame = np.concatenate([gt8, rgb8, rgb_static8, rgb_dynamic8], axis=1)
                     os.makedirs(os.path.join(self.states.workspace, 'images'), exist_ok=True)
                     imageio.imwrite(os.path.join(f'{self.states.workspace}', 'images', 'output_{:03d}_{:03d}.png'.format(i, _)), frame)
                     frames.append(frame)
