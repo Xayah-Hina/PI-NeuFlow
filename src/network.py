@@ -244,5 +244,5 @@ class NetWorkPINeuFlow(torch.nn.Module):
             rgb_map: [N, 3]
         """
         with torch.no_grad():
-            rgb_map, depth_map = self.render(rays_o, rays_d, time, extra_params, randomize)
-        return rgb_map, depth_map
+            rgb_map, depth_map, extras = self.render(rays_o, rays_d, time, extra_params, randomize)
+        return rgb_map, depth_map, extras
